@@ -1,6 +1,7 @@
 # Go rewrite of codex-limits
 
-Status: WIP. High-level plan committed as `07ab416`; implementation details added afterward.
+Status: Implemented and reviewed. High-level plan committed as `07ab416`;
+implementation details committed afterward as `ad6d0c8`.
 
 ## Why?
 
@@ -192,3 +193,32 @@ or OS has been tested live.
 - Commit implementation with a detailed message referencing this plan, but do
   not mark it completed before review and acceptance checks pass. Send review
   defects to Luna rather than having the primary agent implement fixes.
+
+
+## Implementation and review record
+
+Luna at xhigh wrote the Go implementation, tests, and build recipe. The primary
+agent reviewed the result, sent implementation defects back to Luna, and made
+final README and plan-record edits after the code passed review. No Go code
+was written by the primary agent.
+
+Validation completed before the implementation commit:
+
+- Go unit tests, `go vet ./...`, and `go test -race ./...` passed.
+- Independent app-server fixtures covered future plan names, short windows,
+  absent quotas/percentages/durations, capped reset details, and API-key login
+  rejection. Only the specified read-only RPC methods were observed.
+- Real default discovery and explicit proxy reads both returned this account's
+  three quota windows and banked reset information.
+- A PTY verified colored, prefilled demo output, repeated refreshes, resizing
+  from 80 to 120 columns, and cursor/screen restoration on Ctrl+C.
+- Separate stalled-startup and stalled-read checks verified immediate clean
+  interruption and reaping of the exact app-server child.
+- All five documented release targets cross-built with CGo disabled. Archive
+  checksums and README inclusion passed, and the packaged Linux amd64 binary
+  ran successfully and reported version 0.1.0.
+
+Runtime checks used this Linux host and its existing account. Other account
+responses were simulated; macOS and Windows were cross-built, not run. Windows
+terminal sizing uses environment dimensions or the documented fallback.
+Release artifacts are local and have not been published.
