@@ -1,0 +1,567 @@
+#!/usr/bin/env python3
+"""Print the remaining usage in each ChatGPT Codex account window."""
+
+from __future__ import annotations
+
+import argparse
+from collections import deque
+from contextlib import redirect_stdout
+import io
+import math
+import os
+import shutil
+from datetime import datetime
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+
+USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+AUTH_DIR = Path.home() / ".config" / "cliproxyapi" / "auth"
+FIVE_HOURS = 5 * 60 * 60
+ONE_WEEK = 7 * 24 * 60 * 60
+LIVE_INTERVAL = 5.0
+HISTORY_SECONDS = 4 * 60 * 60
+
+
+def find_auth_file(explicit_path: str | None) -> Path:
+    if explicit_path:
+        return Path(explicit_path).expanduser()
+
+    candidates: list[Path] = []
+    for path in AUTH_DIR.glob("codex-*.json"):
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            data.get("access_token")
+            and data.get("account_id")
+            and data.get("disabled") is not True
+        ):
+            candidates.append(path)
+
+    if not candidates:
+        raise RuntimeError(f"no active Codex OAuth file found in {AUTH_DIR}")
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def fetch_json(auth_file: Path, url: str, response_name: str) -> dict[str, Any]:
+    try:
+        auth = json.loads(auth_file.read_text())
+        token = auth["access_token"]
+        account_id = auth["account_id"]
+    except FileNotFoundError as error:
+        raise RuntimeError(f"OAuth file not found: {auth_file}") from error
+    except (KeyError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"invalid Codex OAuth file: {auth_file}") from error
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "ChatGPT-Account-Id": account_id,
+            "Content-Type": "application/json",
+            "OAI-Product-Sku": "codex",
+            "User-Agent": "codex-limits/1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            try:
+                data = json.load(response)
+            except json.JSONDecodeError as error:
+                raise RuntimeError(
+                    f"ChatGPT returned an invalid {response_name} response"
+                ) from error
+            if not isinstance(data, dict):
+                raise RuntimeError(
+                    f"ChatGPT returned an invalid {response_name} response"
+                )
+            return data
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise RuntimeError(
+                "ChatGPT rejected the saved OAuth token; run a Codex request to refresh it"
+            ) from error
+        raise RuntimeError(
+            f"ChatGPT {response_name} request failed with HTTP {error.code}"
+        ) from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            f"could not reach ChatGPT for {response_name}: {error.reason}"
+        ) from error
+    except TimeoutError as error:
+        raise RuntimeError(f"ChatGPT {response_name} request timed out") from error
+
+
+def fetch_usage(auth_file: Path) -> dict[str, Any]:
+    return fetch_json(auth_file, USAGE_URL, "usage")
+
+
+def fetch_reset_credit_details(auth_file: Path) -> dict[str, Any]:
+    return fetch_json(auth_file, RESET_CREDITS_URL, "reset-credit")
+
+
+def find_window(rate_limit: dict[str, Any], seconds: int) -> dict[str, Any] | None:
+    windows = (
+        rate_limit.get("primary_window"),
+        rate_limit.get("secondary_window"),
+    )
+    for window in windows:
+        if isinstance(window, dict) and window.get("limit_window_seconds") == seconds:
+            return window
+    return None
+
+
+def window_summary(
+    rate_limit: dict[str, Any], seconds: int, now: float
+) -> dict[str, Any] | None:
+    window = find_window(rate_limit, seconds)
+    if window is None:
+        return None
+
+    summary: dict[str, Any] = {}
+    used_percent = window.get("used_percent")
+    if isinstance(used_percent, (int, float)) and not isinstance(used_percent, bool):
+        summary["remaining_percent"] = 100 - used_percent
+
+    reset_at = window.get("reset_at")
+    if isinstance(reset_at, (int, float)) and not isinstance(reset_at, bool):
+        summary["reset"] = {
+            "after_seconds": max(0, int(reset_at - now)),
+            "at": datetime.fromtimestamp(reset_at).astimezone().isoformat(timespec="seconds"),
+            "timestamp": reset_at,
+        }
+
+    return summary or None
+
+
+def display_percent(value: int | float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return f"{value:g}%"
+
+
+def display_duration(seconds: int) -> str:
+    days, remainder = divmod(max(0, seconds), 24 * 60 * 60)
+    hours, remainder = divmod(remainder, 60 * 60)
+    minutes = remainder // 60
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+def display_reset(reset: dict[str, Any] | None) -> str:
+    if reset is None:
+        return ""
+    reset_at = datetime.fromtimestamp(reset["timestamp"]).astimezone()
+    return (
+        f" (resets in {display_duration(reset['after_seconds'])}, "
+        f"{reset_at:%Y-%m-%d %H:%M:%S %Z})"
+    )
+
+
+def parse_api_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
+
+
+def banked_reset_summary(
+    usage_data: dict[str, Any], detail_data: dict[str, Any], now: float
+) -> dict[str, Any] | None:
+    summary: dict[str, Any] = {}
+    raw_summary = usage_data.get("rate_limit_reset_credits")
+    if isinstance(raw_summary, dict):
+        for source, target in (
+            ("available_count", "available"),
+            ("applicable_available_count", "applicable"),
+        ):
+            value = raw_summary.get(source)
+            if isinstance(value, int) and not isinstance(value, bool):
+                summary[target] = value
+
+    available_count = detail_data.get("available_count")
+    if isinstance(available_count, int) and not isinstance(available_count, bool):
+        summary["available"] = available_count
+
+    expirations: list[dict[str, Any]] = []
+    raw_credits = detail_data.get("credits")
+    if isinstance(raw_credits, list):
+        for credit in raw_credits:
+            if not isinstance(credit, dict) or credit.get("status") != "available":
+                continue
+            expires_at = parse_api_datetime(credit.get("expires_at"))
+            if expires_at is None:
+                continue
+            timestamp = expires_at.timestamp()
+            expirations.append(
+                {
+                    "after_seconds": max(0, int(timestamp - now)),
+                    "at": expires_at.astimezone().isoformat(timespec="seconds"),
+                    "timestamp": timestamp,
+                }
+            )
+    expirations.sort(key=lambda item: item["timestamp"])
+    if (
+        isinstance(available_count, int)
+        and not isinstance(available_count, bool)
+        and len(expirations) != available_count
+    ):
+        raise RuntimeError(
+            "ChatGPT did not return an expiration date for every banked reset"
+        )
+    if expirations:
+        summary["expirations"] = expirations
+    return summary or None
+
+
+def additional_limits(data: dict[str, Any], now: float) -> list[dict[str, Any]]:
+    limits: list[dict[str, Any]] = []
+    raw_limits = data.get("additional_rate_limits", [])
+    if not isinstance(raw_limits, list):
+        return limits
+
+    for item in raw_limits:
+        if not isinstance(item, dict) or not isinstance(item.get("rate_limit"), dict):
+            continue
+        rate_limit = item["rate_limit"]
+        five_hour = window_summary(rate_limit, FIVE_HOURS, now)
+        weekly = window_summary(rate_limit, ONE_WEEK, now)
+        if five_hour is None and weekly is None:
+            continue
+        name = item.get("limit_name") or item.get("metered_feature") or "Additional limit"
+        output: dict[str, Any] = {"name": str(name)}
+        if five_hour is not None:
+            if "remaining_percent" in five_hour:
+                output["five_hour_remaining_percent"] = five_hour["remaining_percent"]
+            if "reset" in five_hour:
+                output["five_hour_reset"] = five_hour["reset"]
+        if weekly is not None:
+            if "remaining_percent" in weekly:
+                output["weekly_remaining_percent"] = weekly["remaining_percent"]
+            if "reset" in weekly:
+                output["weekly_reset"] = weekly["reset"]
+        limits.append(output)
+    return limits
+
+
+def read_snapshot(explicit_auth_file: str | None) -> dict[str, Any]:
+    auth_file = find_auth_file(explicit_auth_file)
+    data = fetch_usage(auth_file)
+    reset_credit_data = fetch_reset_credit_details(auth_file)
+    rate_limit = data["rate_limit"]
+    if not isinstance(rate_limit, dict):
+        raise RuntimeError("ChatGPT returned an invalid primary rate limit")
+    now = time.time()
+    five_hour = window_summary(rate_limit, FIVE_HOURS, now)
+    weekly = window_summary(rate_limit, ONE_WEEK, now)
+    extra_limits = additional_limits(data, now)
+    banked_resets = banked_reset_summary(data, reset_credit_data, now)
+    if five_hour is None and weekly is None and not extra_limits:
+        raise RuntimeError("ChatGPT returned no recognized usage windows")
+
+    output: dict[str, Any] = {"additional_rate_limits": extra_limits}
+    if five_hour is not None:
+        if "remaining_percent" in five_hour:
+            output["five_hour_remaining_percent"] = five_hour["remaining_percent"]
+        if "reset" in five_hour:
+            output["five_hour_reset"] = five_hour["reset"]
+    if weekly is not None:
+        if "remaining_percent" in weekly:
+            output["weekly_remaining_percent"] = weekly["remaining_percent"]
+        if "reset" in weekly:
+            output["weekly_reset"] = weekly["reset"]
+    if banked_resets is not None:
+        output["banked_resets"] = banked_resets
+    return output
+
+
+def snapshot_window(output: dict[str, Any], prefix: str) -> dict[str, Any] | None:
+    window = {}
+    for field in ("remaining_percent", "reset"):
+        if f"{prefix}_{field}" in output:
+            window[field] = output[f"{prefix}_{field}"]
+    return window or None
+
+
+def print_snapshot(output: dict[str, Any]) -> None:
+    five_hour = snapshot_window(output, "five_hour")
+    weekly = snapshot_window(output, "weekly")
+    extra_limits = output["additional_rate_limits"]
+    banked_resets = output.get("banked_resets")
+    if five_hour is not None:
+        print(
+            f"5h left:     {display_percent(five_hour.get('remaining_percent'))}"
+            f"{display_reset(five_hour.get('reset'))}"
+        )
+    if weekly is not None:
+        print(
+            f"Weekly left: {display_percent(weekly.get('remaining_percent'))}"
+            f"{display_reset(weekly.get('reset'))}"
+        )
+    if banked_resets is not None:
+        banked_line = f"Banked resets: {banked_resets.get('available', 'unavailable')}"
+        if "applicable" in banked_resets:
+            banked_line += f" ({banked_resets['applicable']} applicable now)"
+        print(banked_line)
+        for index, expiration in enumerate(banked_resets.get("expirations", []), 1):
+            expires_at = datetime.fromtimestamp(expiration["timestamp"]).astimezone()
+            print(
+                f"  {index}. expires in {display_duration(expiration['after_seconds'])}, "
+                f"{expires_at:%Y-%m-%d %H:%M:%S %Z}"
+            )
+    for extra in extra_limits:
+        print(f"\n{extra['name']}:")
+        if "five_hour_remaining_percent" in extra:
+            print(
+                "  5h left:     "
+                f"{display_percent(extra['five_hour_remaining_percent'])}"
+                f"{display_reset(extra.get('five_hour_reset'))}"
+            )
+        if "weekly_remaining_percent" in extra:
+            print(
+                "  Weekly left: "
+                f"{display_percent(extra['weekly_remaining_percent'])}"
+                f"{display_reset(extra.get('weekly_reset'))}"
+            )
+
+
+def positive_interval(value: str) -> float:
+    try:
+        interval = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("interval must be a positive number") from error
+    if not math.isfinite(interval) or interval <= 0:
+        raise argparse.ArgumentTypeError("interval must be a positive number")
+    return interval
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Print the remaining usage in each ChatGPT Codex account window."
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    mode.add_argument(
+        "--live", action="store_true",
+        help="refresh in place with a four-hour Unicode remaining-usage chart; Ctrl+C stops",
+    )
+    parser.add_argument(
+        "--interval", type=positive_interval, metavar="SECONDS",
+        help="live refresh interval in seconds (default: 5)",
+    )
+    parser.add_argument("--auth-file", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.interval is not None and not args.live:
+        parser.error("--interval requires --live")
+    if args.interval is None:
+        args.interval = LIVE_INTERVAL
+    return args
+
+
+def remaining_values(output: dict[str, Any]) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for group in [output, *output["additional_rate_limits"]]:
+        name = f"{group['name']} / " if "name" in group else ""
+        for key, label in (("five_hour", "5h"), ("weekly", "Weekly")):
+            remaining = group.get(f"{key}_remaining_percent")
+            if isinstance(remaining, (int, float)) and math.isfinite(remaining):
+                values[name + label] = max(0.0, min(100.0, remaining))
+    return values
+
+
+Sample = tuple[float, dict[str, float]]
+
+
+PALETTE = (81, 213, 221, 114, 209, 147)
+BRAILLE_BITS = ((1, 2, 4, 64), (8, 16, 32, 128))
+
+
+def paint(text: str, shade: int, color: bool) -> str:
+    return f"\033[38;5;{shade}m{text}\033[0m" if color else text
+
+
+def chart_lines(
+    history: deque[Sample], interval: float, width: int, height: int,
+    names: list[str], color: bool,
+) -> list[str]:
+    """Rasterize each line at two horizontal by four vertical dots per cell."""
+    pixels_x, pixels_y = width * 2, height * 4
+    masks = [[0] * width for _ in range(height)]
+    owners: list[list[set[int]]] = [[set() for _ in range(width)] for _ in range(height)]
+    end = history[-1][0]
+    span = HISTORY_SECONDS
+    start = end - span
+
+    def dot(x: int, y: int, series: int) -> None:
+        if 0 <= x < pixels_x and 0 <= y < pixels_y:
+            masks[y // 4][x // 2] |= BRAILLE_BITS[x % 2][y % 4]
+            owners[y // 4][x // 2].add(series)
+
+    for series, name in enumerate(names):
+        previous: tuple[int, int, float] | None = None
+        for timestamp, values in history:
+            if timestamp < start or name not in values:
+                previous = None
+                continue
+            x = round((timestamp - start) / span * (pixels_x - 1))
+            y = round((100 - values[name]) / 100 * (pixels_y - 1))
+            dot(x, y, series)
+            if previous is not None and timestamp - previous[2] <= interval * 1.8:
+                old_x, old_y, _ = previous
+                steps = max(abs(x - old_x), abs(y - old_y), 1)
+                for step in range(steps + 1):
+                    dot(round(old_x + (x - old_x) * step / steps),
+                        round(old_y + (y - old_y) * step / steps), series)
+            previous = x, y, timestamp
+
+    ticks = {round(fraction * (height - 1)): 100 - fraction * 100
+             for fraction in (0, 0.25, 0.5, 0.75, 1)}
+    verticals = {round(fraction * (width - 1)) for fraction in (0.25, 0.5, 0.75)}
+    lines = ["      " + paint("┌" + "─" * width + "┐", 240, color)]
+    for row in range(height):
+        label = f"{ticks[row]:3.0f}% " if row in ticks else "     "
+        cells = []
+        for column in range(width):
+            mask = masks[row][column]
+            if mask:
+                hits = owners[row][column]
+                shade = PALETTE[next(iter(hits)) % len(PALETTE)] if len(hits) == 1 else 255
+                cells.append(paint(chr(0x2800 + mask), shade, color))
+            else:
+                grid = "┈" if row in ticks else "┊" if column in verticals else " "
+                cells.append(paint(grid, 236, color) if grid != " " else grid)
+        lines.append(" " + paint(label, 245, color) + paint("│", 240, color)
+                     + "".join(cells) + paint("│", 240, color))
+    lines.append("      " + paint("└" + "─" * width + "┘", 240, color))
+    axis = [" "] * width
+    for fraction in ((0, 0.5, 1) if width >= 35 else (0, 1)):
+        label = datetime.fromtimestamp(start + span * fraction).strftime("%H:%M:%S")
+        offset = max(0, min(width - len(label), round(fraction * (width - 1)) - len(label) // 2))
+        axis[offset:offset + len(label)] = label
+    lines.append("       " + paint("".join(axis), 245, color))
+    return lines
+
+
+def print_dashboard(
+    history: deque[Sample], interval: float, snapshot: dict[str, Any] | None,
+    last_success: float | None, error: str | None, color: bool,
+) -> None:
+    columns, rows = shutil.get_terminal_size()
+    width = max(16, columns - 9)
+    names = list(dict.fromkeys(name for _, values in history for name in values))
+    updated = datetime.fromtimestamp(last_success).strftime("%H:%M:%S") if last_success else "waiting"
+    heading = f"  CODEX LIMITS   ·   LIVE   ·   {interval:g}s refresh   ·   {updated}"
+    print(paint(heading[:columns - 1], 81, color))
+    print(paint("  LAST 4 HOURS   ·   0–100% left   ·   newest at right"[:columns - 1], 245, color))
+    banked = snapshot.get("banked_resets") if snapshot else None
+    height = max(5, min(20, rows - 8 - len(names) - bool(banked) - bool(error)))
+    if history:
+        print("\n".join(chart_lines(history, interval, width, height, names, color)))
+    else:
+        print("  Waiting for the first sample…")
+    values = remaining_values(snapshot) if snapshot else {}
+    for index, name in enumerate(names):
+        remaining = values.get(name)
+        value = f"{remaining:5.1f}% left" if remaining is not None else "unavailable"
+        label = f"  ━━  {name}  {value}"
+        if snapshot is not None:
+            groups = [snapshot, *snapshot["additional_rate_limits"]]
+            for group in groups:
+                prefix = f"{group['name']} / " if "name" in group else ""
+                for key, window in (("five_hour", "5h"), ("weekly", "Weekly")):
+                    if prefix + window == name and f"{key}_reset" in group:
+                        reset = group[f"{key}_reset"]
+                        label += f"  ·  resets in {display_duration(reset['after_seconds'])}"
+        print(paint(label[:columns - 1], PALETTE[index % len(PALETTE)], color))
+    if banked:
+        label = f"  Banked resets {banked.get('available', '?')}"
+        if "applicable" in banked:
+            label += f"  ·  {banked['applicable']} applicable now"
+        expirations = banked.get("expirations", [])
+        if expirations:
+            label += f"  ·  next expires in {display_duration(expirations[0]['after_seconds'])}"
+        print(paint(label[:columns - 1], 245, color))
+    if error:
+        print(paint(f"  Refresh failed · {error} · retrying; values may be stale"[:columns - 1], 209, color))
+    print(paint("  Ctrl+C quit  ·  history from this run  ·  gaps = missed refreshes"[:columns - 1], 240, color))
+
+
+def live(args: argparse.Namespace) -> int:
+    history: deque[Sample] = deque()
+    last_snapshot: dict[str, Any] | None = None
+    last_success: float | None = None
+    terminal = sys.stdout.isatty() and os.environ.get("TERM") != "dumb"
+    color = terminal and "NO_COLOR" not in os.environ
+    try:
+        if terminal:
+            sys.stdout.write("\033[?1049h\033[?25l")
+            sys.stdout.flush()
+        while True:
+            started = time.monotonic()
+            error_message: str | None = None
+            try:
+                last_snapshot = read_snapshot(args.auth_file)
+                last_success = time.time()
+                history.append((last_success, remaining_values(last_snapshot)))
+            except (OSError, KeyError, TypeError, RuntimeError) as error:
+                error_message = str(error)
+                history.append((time.time(), {}))
+            cutoff = history[-1][0] - HISTORY_SECONDS
+            while history and history[0][0] < cutoff:
+                history.popleft()
+            frame = io.StringIO()
+            with redirect_stdout(frame):
+                print_dashboard(history, args.interval, last_snapshot, last_success,
+                                error_message, color)
+            contents = frame.getvalue()
+            if terminal:
+                contents = "\033[H" + contents.replace("\n", "\033[K\n") + "\033[J"
+            sys.stdout.write(contents)
+            sys.stdout.flush()
+            time.sleep(max(0.0, args.interval - (time.monotonic() - started)))
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        if terminal:
+            sys.stdout.write("\033[?25h\033[?1049l")
+            sys.stdout.flush()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        if args.live:
+            return live(args)
+        output = read_snapshot(args.auth_file)
+        if args.json:
+            print(json.dumps(output, separators=(",", ":")))
+        else:
+            print_snapshot(output)
+    except (OSError, KeyError, TypeError, RuntimeError) as error:
+        print(f"codex-limits: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
