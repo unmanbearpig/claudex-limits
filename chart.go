@@ -408,23 +408,28 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 			fmt.Fprintln(w, clipLine(line, columns))
 		}
 	}
+	values := map[string]float64{}
 	if snapshot != nil {
-		values := snapshotValues(*snapshot)
-		for index, name := range names {
-			value, ok := values[name]
-			line := fmt.Sprintf("  ━━  %s  ", name)
-			if ok {
-				line += fmt.Sprintf("%5.1f%% left", value)
-			} else {
-				line += "unavailable"
-			}
+		values = snapshotValues(*snapshot)
+	}
+	for index, name := range names {
+		value, ok := values[name]
+		line := fmt.Sprintf("  ━━  %s  ", name)
+		if ok {
+			line += fmt.Sprintf("%5.1f%% left", value)
+		} else {
+			line += "unavailable"
+		}
+		if snapshot != nil {
 			for _, window := range snapshot.Windows {
 				if window.Name == name && window.Reset != nil {
 					line += "  ·  resets in " + displayDuration(window.Reset.AfterSeconds)
 				}
 			}
-			fmt.Fprintln(w, clipLine(colorize(line, palette[index%len(palette)], color), columns))
 		}
+		fmt.Fprintln(w, clipLine(colorize(line, palette[index%len(palette)], color), columns))
+	}
+	if snapshot != nil {
 		if banked := snapshot.BankedResets; banked != nil {
 			line := "  Banked resets "
 			if banked.Available == nil {
@@ -441,7 +446,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	if errorMessage != "" {
 		fmt.Fprintln(w, clipLine(colorize("  Refresh failed · "+errorMessage+" · retrying; values may be stale", 209, color), columns))
 	}
-	fmt.Fprintln(w, clipLine(colorize("  Ctrl+C quit  ·  history from this run  ·  gaps = missed refreshes", 240, color), columns))
+	fmt.Fprintln(w, clipLine(colorize("  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes", 240, color), columns))
 }
 
 func RunLive(w io.Writer, source Source, interval float64) error {
@@ -453,6 +458,10 @@ func RunLive(w io.Writer, source Source, interval float64) error {
 	interrupts := make(chan os.Signal, 2)
 	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(interrupts)
+	history := make([]Sample, 0)
+	if saved, ok := source.(interface{ History(time.Time) []Sample }); ok {
+		history = saved.History(time.Now())
+	}
 	if interactive {
 		if _, err := io.WriteString(w, "\x1b[?1049h\x1b[?25l"); err != nil {
 			return err
@@ -463,9 +472,23 @@ func RunLive(w io.Writer, source Source, interval float64) error {
 			_, _ = io.WriteString(w, "\x1b[?25h\x1b[?1049l")
 		}
 	}()
-	history := make([]Sample, 0)
 	var snapshot *Snapshot
 	var lastSuccess time.Time
+	render := func(errorMessage string, now time.Time) error {
+		var frame strings.Builder
+		dashboard(&frame, w, history, snapshot, interval, lastSuccess, errorMessage, color, now)
+		contents := frame.String()
+		if interactive {
+			contents = "\x1b[H" + strings.ReplaceAll(contents, "\n", "\x1b[K\n") + "\x1b[J"
+		}
+		_, err := io.WriteString(w, contents)
+		return err
+	}
+	if len(history) > 0 {
+		if err := render("", time.Now()); err != nil {
+			return err
+		}
+	}
 	for {
 		started := time.Now()
 		resultCh := make(chan struct {
@@ -511,13 +534,7 @@ func RunLive(w io.Writer, source Source, interval float64) error {
 			history = append(history, Sample{At: now, Values: snapshotValues(current)})
 		}
 		history = trimHistory(history, now)
-		var frame strings.Builder
-		dashboard(&frame, w, history, snapshot, interval, lastSuccess, errorMessage, color, now)
-		contents := frame.String()
-		if interactive {
-			contents = "\x1b[H" + strings.ReplaceAll(contents, "\n", "\x1b[K\n") + "\x1b[J"
-		}
-		if _, err := io.WriteString(w, contents); err != nil {
+		if err := render(errorMessage, now); err != nil {
 			return err
 		}
 		wait := time.Duration(interval * float64(time.Second))

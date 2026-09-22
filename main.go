@@ -31,7 +31,7 @@ func parseOptions(args []string) (options, error) {
 	fs := flag.NewFlagSet("codex-limits", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&opts.json, "json", false, "print one machine-readable JSON snapshot")
-	fs.BoolVar(&opts.live, "live", false, "show a live four-hour chart")
+	fs.BoolVar(&opts.live, "live", false, "show a live four-hour chart including saved readings")
 	fs.Float64Var(&opts.interval, "interval", 5, "live refresh interval in seconds")
 	fs.StringVar(&opts.source, "source", "auto", "account source: auto, codex, or proxy")
 	fs.StringVar(&opts.authFile, "auth-file", "", "read OAuth credentials from this file")
@@ -88,7 +88,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  --json                 print one JSON snapshot")
-	fmt.Fprintln(w, "  --live                 refresh a four-hour chart")
+	fmt.Fprintln(w, "  --live                 refresh a four-hour chart including saved readings")
 	fmt.Fprintln(w, "  --interval SECONDS     live refresh interval (default 5)")
 	fmt.Fprintln(w, "  --source auto|codex|proxy")
 	fmt.Fprintln(w, "  --auth-file PATH       use this OAuth file")
@@ -124,6 +124,7 @@ func run() int {
 			return 1
 		}
 	}
+	source = withHistory(source, os.Stderr)
 	defer source.Close()
 	if opts.live {
 		if err := RunLive(os.Stdout, source, opts.interval); err != nil {

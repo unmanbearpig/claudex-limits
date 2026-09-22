@@ -2,8 +2,9 @@
 
 `codex-limits` is a small standalone Go command that reads the signed-in Codex
 account's rate limits and prints the percentage left in each quota window. It
-can print one snapshot or keep a four-hour chart in a terminal. History stays
-in memory for the current run.
+can print one snapshot or keep a four-hour chart in a terminal. Every fetched
+snapshot is saved locally, including normal calls, `--json`, and live refreshes.
+Starting `--live` restores readings from the last four hours across restarts.
 
 The repository is local and has no published releases or download URL yet.
 
@@ -63,7 +64,7 @@ after the first frame:
   ━━  5h   64.4% left  ·  resets in 1h 59m
   ━━  Weekly   44.8% left  ·  resets in 3d 23h 59m
   Banked resets 2
-  Ctrl+C quit  ·  history from this run  ·  gaps = missed refreshes
+  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes
 ```
 
 The live chart uses Braille cells, colors each quota line separately, places
@@ -74,11 +75,26 @@ or an 80×24 fallback; use a Unicode/ANSI-capable terminal. Windows binaries
 have been cross-built, but their terminal behavior has not been tested live.
 Ctrl+C restores the cursor and the previous terminal screen.
 
+History is stored under the operating system's user cache directory, in
+`codex-limits/history`. On Linux this is
+`${XDG_CACHE_HOME:-~/.cache}/codex-limits/history`; macOS uses
+`~/Library/Caches/codex-limits/history`, and Windows uses
+`%LocalAppData%\codex-limits\history`. Each OAuth file and Codex home has
+separate history, so selecting a different source does not combine its graph
+with the previous source. Delete this directory to clear saved history.
+
+Snapshots are appended immediately to hourly files, so concurrent calls do
+not overwrite earlier readings. Only the last four hours appear on the graph;
+expired hourly files are removed on later calls. The files contain timestamps
+and quota snapshots, without OAuth credentials. `--demo` neither reads nor
+writes saved history. Storage failures produce a warning on stderr while
+fetched limits remain available.
+
 ## Flags
 
 ```text
 --json                 print one JSON snapshot and exit
---live                 refresh the chart until Ctrl+C
+--live                 restore recent readings and refresh the chart until Ctrl+C
 --interval SECONDS     live refresh interval, default 5
 --source auto|codex|proxy
                        choose account discovery mode, default auto
@@ -133,7 +149,7 @@ Named fields preserve the original command's format:
 Missing percentages remain missing. A failed live refresh keeps the last
 successful values on screen, reports them as stale, and adds a gap without
 inventing a sample. Chart history is retained by age for four hours, without a
-sample-count cap, and is discarded when the process exits.
+sample-count cap. Saved readings and missed-refresh gaps survive process exit.
 
 ## Build and install
 
@@ -183,7 +199,8 @@ make release VERSION=dev
 
 The tests cover native and proxy credential shapes, generic and multi-bucket
 normalization, missing data, optional reset details, legacy HTTP responses,
-chart orientation and gaps, history retention, and CLI validation. The real
+chart orientation and gaps, history retention, concurrent history writes,
+CLI persistence across restarts, and CLI validation. The real
 Codex app-server request is read-only: initialization, account reads, and rate
 limit reads. It never starts a thread or turn and never consumes a banked
 reset.
