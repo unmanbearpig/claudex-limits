@@ -1,94 +1,110 @@
 # codex-limits
 
-`codex-limits` is a small standalone Go command that reads the signed-in Codex
-account's rate limits and prints the percentage left in each quota window. It
-can print one snapshot or keep a four-hour chart in a terminal. Every fetched
-snapshot is saved locally, including normal calls, `--json`, and live refreshes.
-Starting `--live` restores readings from the last four hours across restarts.
+See how much Codex allowance you have left, without leaving the terminal.
 
-The repository is local and has no published releases or download URL yet.
+`codex-limits` prints a snapshot or a live four-hour chart of the signed-in
+account's quota windows. Recent readings survive restarts. It uses your
+existing Codex login and never starts a model turn or consumes a banked reset.
+
+![Live terminal chart showing synthetic Codex quota data](docs/demo.svg)
+
+Synthetic preview from `codex-limits --demo --live`. No account data appears
+in this image.
+
+Linux and macOS are supported on amd64 and arm64. Windows is unsupported.
+This is an independent project, unaffiliated with OpenAI.
 
 ## Quick start
 
-For a source build, install Go 1.26 or newer and the Codex CLI. From this
-checkout, build and install the binary first:
+Binary releases have not been published yet. [Build from source](#build-from-source)
+for now. The [Releases page](https://github.com/unmanbearpig/codex-limits/releases)
+will host the archives described below.
+
+After installation, sign in with the
+[Codex CLI](https://developers.openai.com/codex/cli/) and run:
 
 ```sh
-make build VERSION=dev
-mkdir -p "$HOME/.local/bin"
-install -m 0755 codex-limits "$HOME/.local/bin/codex-limits"
 codex login
 codex-limits
 codex-limits --live
 ```
 
-Ensure `~/.local/bin` is on your `PATH`. The Go compiler is only needed for this local build. There is no published
-binary yet. A future release archive will run without Go after unpacking.
-
-To inspect the display without an account or network access, run the synthetic
-preview:
+Try the chart without an account or network access:
 
 ```sh
 codex-limits --demo --live
 ```
 
-The heading labels this data as `DEMO (synthetic)`. A preview looks like this
-after the first frame:
+Use Ctrl+C to quit. The command restores the cursor and previous terminal
+screen. `codex-limits --json` prints one machine-readable snapshot.
 
-```text
-  CODEX LIMITS · DEMO (synthetic)   ·   LIVE   ·   0.2s refresh   ·   23:07:20
-  LAST 4 HOURS   ·   0–100% left   ·   newest at right
-      ┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
- 100% │┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-  75% │┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
-      │                         ⣀⡠⠔⠒⠒⠒⠒⠢⠤⠤⠤⠤⣀⣀⣀⣀⣀⣀⣀⣀⣀         ┊               ⣀⡠⠔⠒⠒⠒⠒⠢⠤⠤⠤⠤⣀⣀⣀⣀⣀⣀⣀⣀⣀                   │
-      │         ⠤⠤⠤⠤⠤⣀⣀⣀⣀⡀ ⣀⡠⠔⠒⠉   ┊                 ⠉⠉⠉⠉⠑⠒⠒⠒⠒⠤⠤⠤⠤⠤⣀⣀⣀⣀⡀ ⣀⡠⠔⠒⠉            ┊        ⠉⠉⠉⠉⠉⠒⠒⠒⠒⠢        ⠈│
-      │                  ⠈⠉        ┊                          ┊        ⠈⠉                 ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-  50% │┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⢀⣀⠤⠔⠒⠒⠒⠒⠒⠒⠒⠒⠒⠤⠤⠤⠤⢄⣀⣀⣀⣀┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈⢀⣀⠤⠔⠒⠒⠒⠒⠒⠒⠒⠒⠒⠤⠤⠤⠤⢄⣀⣀⣀⣀┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
-      │         ⠒⠒⠒⠒⠒⠤⠤⠤⠤⢄⣀⠤⠔⠒⠉⠁   ┊                 ⠉⠉⠉⠉⠉⠉⠉⠉⠉⠒⠒⠒⠒⠒⠤⠤⠤⠤⢄⣀⠤⠔⠒⠉⠁            ┊        ⠉⠉⠉⠉⠉⠉⠉⠉⠉⠑        ⠈│
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-  25% │┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-      │                            ┊                          ┊                           ┊                           │
-   0% │┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│
-      └───────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-       19:07:20                                           21:07:20                                            23:07:20
-  ━━  5h   64.4% left  ·  resets in 1h 59m
-  ━━  Weekly   44.8% left  ·  resets in 3d 23h 59m
-  Banked resets 2
-  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes
+## Install a release
+
+Download the matching archive and `SHA256SUMS` from
+[Releases](https://github.com/unmanbearpig/codex-limits/releases).
+A downloaded binary needs no Go toolchain, Python, or proxy service.
+
+| System | Processor | Target |
+| --- | --- | --- |
+| Linux | Intel or AMD 64-bit | `linux-amd64` |
+| Linux | ARM 64-bit | `linux-arm64` |
+| macOS | Intel | `darwin-amd64` |
+| macOS | Apple silicon | `darwin-arm64` |
+
+In the directory containing your downloads, set the version and target to
+match the archive you chose. For example, a Linux amd64 release named
+`codex-limits-0.1.0-linux-amd64.tar.gz` would use:
+
+```sh
+version=0.1.0
+target=linux-amd64
+archive="codex-limits-$version-$target.tar.gz"
 ```
 
-The live chart uses Braille cells, colors each quota line separately, places
-the newest sample on the right, and keeps missed refreshes as visible gaps.
-The horizontal axis always spans four hours. Resize the terminal to change the
-chart width on Linux and macOS. Windows uses `COLUMNS` and `LINES` when set,
-or an 80×24 fallback; use a Unicode/ANSI-capable terminal. Windows binaries
-have been cross-built, but their terminal behavior has not been tested live.
-Ctrl+C restores the cursor and the previous terminal screen.
+Verify the selected archive on Linux:
 
-History is stored under the operating system's user cache directory, in
-`codex-limits/history`. On Linux this is
-`${XDG_CACHE_HOME:-~/.cache}/codex-limits/history`; macOS uses
-`~/Library/Caches/codex-limits/history`, and Windows uses
-`%LocalAppData%\codex-limits\history`. Each OAuth file and Codex home has
-separate history, so selecting a different source does not combine its graph
-with the previous source. Delete this directory to clear saved history.
+```sh
+awk -v archive="$archive" '$2 == archive { print }' SHA256SUMS | sha256sum -c -
+```
 
-Snapshots are appended immediately to hourly files, so concurrent calls do
-not overwrite earlier readings. Only the last four hours appear on the graph;
-expired hourly files are removed on later calls. The files contain timestamps
-and quota snapshots, without OAuth credentials. `--demo` neither reads nor
-writes saved history. Storage failures produce a warning on stderr while
-fetched limits remain available.
+Or verify it on macOS:
+
+```sh
+awk -v archive="$archive" '$2 == archive { print }' SHA256SUMS | shasum -a 256 -c -
+```
+
+Continue only if the check prints `OK`. On either system, unpack and install:
+
+```sh
+mkdir -p "codex-limits-$version-$target"
+tar -xzf "$archive" -C "codex-limits-$version-$target"
+mkdir -p "$HOME/.local/bin"
+install -m 0755 "codex-limits-$version-$target/codex-limits" "$HOME/.local/bin/codex-limits"
+export PATH="$HOME/.local/bin:$PATH"
+codex-limits --version
+```
+
+The `export` adds the install directory to `PATH` for the current shell.
+Add that line to your shell configuration to keep it for future terminals.
+
+## Build from source
+
+Install Go 1.26 or newer, Git, and Make. Clone the repository, or use an
+existing checkout:
+
+```sh
+git clone https://github.com/unmanbearpig/codex-limits.git
+cd codex-limits
+make build VERSION=dev
+mkdir -p "$HOME/.local/bin"
+install -m 0755 codex-limits "$HOME/.local/bin/codex-limits"
+export PATH="$HOME/.local/bin:$PATH"
+codex-limits --demo --live
+```
+
+The project uses only the Go standard library. Go is needed to build the
+executable, not to run it. A real account read normally also needs the Codex
+CLI installed and signed in.
 
 ## Flags
 
@@ -106,104 +122,137 @@ fetched limits remain available.
 
 `--interval` must be positive and finite, and only works with `--live`.
 `--json` and `--live` cannot be combined. `--auth-file` cannot be combined
-with `--source codex` or `--source proxy`; an explicit file already chooses the
-account. `--demo` cannot be combined with an account source.
+with `--source codex` or `--source proxy`. `--demo` cannot be combined
+with an explicit account source.
 
-With `--source auto`, the command uses `codex app-server` when the installed
-Codex CLI is available. If the app server reports that no ChatGPT account is
-logged in, the command checks the native OAuth file and then the proxy OAuth
-directory. A transient failure from an authenticated app server is reported
-instead of silently switching accounts. `--source codex` never falls back.
+## Accounts and privacy
+
+With `--source auto`, the command uses `codex app-server` when the Codex CLI
+is available. If the CLI is missing or reports no ChatGPT login, it checks the
+native OAuth file and then the proxy OAuth directory. A transient failure
+from an authenticated app server is reported instead of switching accounts.
+`--source codex` never falls back.
 
 The native file is `${CODEX_HOME}/auth.json` when `CODEX_HOME` is set, or
-`~/.codex/auth.json`; the Codex CLI may also keep its credentials in the
-platform keychain, which the app server reads for the monitor. The proxy
-fallback selects the most recently modified active `codex-*.json` under
-`~/.config/cliproxyapi/auth`. `--auth-file` accepts
-the native nested fields `tokens.access_token` and `tokens.account_id`, and the
-flat proxy fields `access_token` and `account_id`. The command reads these
-files and never refreshes or edits them. A saved API key is not a ChatGPT
-OAuth account, so use `codex login` for the app-server source.
+`~/.codex/auth.json`. The Codex CLI can also use a platform keychain, which
+the app server reads for the monitor. An API key is not a ChatGPT OAuth
+account; use `codex login` for the app-server source.
+
+The proxy fallback selects the most recently modified active `codex-*.json`
+under `~/.config/cliproxyapi/auth`. `--auth-file` selects exactly one file.
+It accepts native nested `tokens.access_token` and `tokens.account_id`
+fields, or flat proxy `access_token` and `account_id` fields.
+
+The file-based source sends authenticated GET requests to the ChatGPT account
+endpoints at `chatgpt.com/backend-api/wham/`. It reads credentials without
+editing or refreshing them. The Codex CLI owns credential refresh for the
+app-server source. No OAuth credentials are included in JSON output or saved
+quota history. There is no project telemetry.
+
+Never attach OAuth files, tokens, or unredacted account logs to an issue.
+
+## Live chart and history
+
+The chart uses colored Braille cells, with the newest reading on the right.
+Its horizontal axis always spans four hours. Missed refreshes appear as gaps;
+the last successful values remain visible and are marked stale. Use a
+Unicode/ANSI-capable terminal and resize it to adjust the chart.
+
+Every fetched snapshot is saved, including normal calls, `--json`, and live
+refreshes. Starting `--live` restores the last four hours. History lives in:
+
+- Linux: `$XDG_CACHE_HOME/codex-limits/history`, or
+  `~/.cache/codex-limits/history` when `XDG_CACHE_HOME` is unset.
+- macOS: `~/Library/Caches/codex-limits/history`.
+
+Each OAuth file path and Codex home has separate history. Changing the account
+within the same file or Codex home keeps that source's history; delete its
+history directory if you want a fresh chart.
+
+Snapshots are appended to hourly files so concurrent calls do not overwrite
+earlier readings. Old hourly files are pruned on later calls for that source.
+Delete the history directory to clear saved readings. Storage failures warn
+on stderr while fetched limits remain available. `--demo` neither reads nor
+writes saved history.
 
 ## JSON output
 
-Named fields preserve the original command's format:
+`codex-limits --json` preserves these fields:
 
 - `five_hour_remaining_percent` and `weekly_remaining_percent` are percentages
-  left. Their matching `*_reset` objects contain `after_seconds`, local `at`,
+  left. Matching `*_reset` objects contain `after_seconds`, local `at`,
   and Unix `timestamp`.
-- `additional_rate_limits` contains the named five-hour and weekly windows of
+- `additional_rate_limits` contains named five-hour and weekly windows for
   other buckets.
-- `banked_resets.available` is authoritative when present. `applicable` is
-  included when reported. `expirations` contains known available credit
-  expirations. `expiration_details_partial` means the account reported more
-  credits than it described in detail.
 - `windows` contains every recognized window, including 15-minute, hourly,
-  and other durations. Each item has `name`, `remaining_percent` when known,
-  `window_seconds` when known, and an optional `reset` object. Unknown values
-  are omitted. An empty list means the account reported no quota windows; the
-  command does not turn that into 100% or unlimited.
-- `plan_type` is descriptive and may contain a plan value the command has not
-  seen before. It does not decide which windows are supported.
+  and other durations. Items contain `name`, optional `remaining_percent`,
+  optional `window_seconds`, and an optional `reset` object.
+- `banked_resets.available` is authoritative when present. `applicable`
+  appears when reported. `expirations` lists known available credit
+  expirations; `expiration_details_partial` means those details are incomplete.
+- `plan_type` is descriptive. It does not determine supported quota windows.
 
-Missing percentages remain missing. A failed live refresh keeps the last
-successful values on screen, reports them as stale, and adds a gap without
-inventing a sample. Chart history is retained by age for four hours, without a
-sample-count cap. Saved readings and missed-refresh gaps survive process exit.
-
-## Build and install
-
-The downloaded executable needs no Python, npm, proxy service, or Go toolchain.
-For a local build and install:
-
-```sh
-make test
-make vet
-make build VERSION=dev
-mkdir -p "$HOME/.local/bin"
-install -m 0755 codex-limits "$HOME/.local/bin/codex-limits"
-```
-
-Building from source requires Go 1.26 or newer. A release archive contains the
-static executable and this README, so a recipient only needs to unpack it and
-place the executable on `PATH`. No release archive has been published yet.
-
-`make release VERSION=0.1.0` cross-builds static archives for Linux amd64 and
-arm64, macOS amd64 and arm64, and Windows amd64. It writes the archives and a
-`SHA256SUMS` file under `dist/`. Cross-builds verify compilation only. A
-normal local build is the runtime test for this machine.
-
-The release command uses `CGO_ENABLED=0`. The chart uses standard-library
-terminal detection and has no native library dependency.
+Unknown percentages and durations are omitted. An empty `windows` list means
+no quota windows were reported, not 100% remaining or unlimited usage.
 
 ## Troubleshooting
 
 - `no ChatGPT account is available`: run `codex login`, then retry. You can
   also pass a known OAuth file with `--auth-file PATH`.
-- `ChatGPT rejected the saved OAuth token`: make a Codex request so the Codex
-  CLI can refresh its own credential, then retry.
-- `No quota windows reported`: the account response was valid but did not
-  include recognized quota values. Check the account and try again later.
-- A redirected `--live` stream has plain text frames and no ANSI controls.
-  `NO_COLOR=1` disables color. `TERM=dumb` also disables the alternate screen.
+- `ChatGPT rejected the saved OAuth token`: make a Codex request so the CLI
+  can refresh its credential, then retry.
+- `No quota windows reported`: the response was valid but contained no
+  recognized quota values. Check the account and try again later.
+- `codex-limits: command not found`: check that `$HOME/.local/bin` is on
+  `PATH` and that the installed executable is named `codex-limits`.
+- Redirected `--live` output uses plain-text frames. `NO_COLOR=1` disables
+  color; `TERM=dumb` also disables the alternate screen.
 
-## Development checks
+## Development and releases
+
+Run the checks locally:
 
 ```sh
-gofmt -w *.go
-go test ./...
-go vet ./...
-go test -race ./...
-make release VERSION=dev
+gofmt -l *.go
+make test
+make vet
+make race
 ```
 
-The tests cover native and proxy credential shapes, generic and multi-bucket
-normalization, missing data, optional reset details, legacy HTTP responses,
-chart orientation and gaps, history retention, concurrent history writes,
-CLI persistence across restarts, and CLI validation. The real
-Codex app-server request is read-only: initialization, account reads, and rate
-limit reads. It never starts a thread or turn and never consumes a banked
-reset.
+Formatting is clean when `gofmt -l` prints nothing. Tests use offline fixtures
+and fake app-server processes. They cover credentials, account responses,
+quota normalization, chart gaps, history persistence, concurrent writes,
+CLI validation, and subprocess cleanup.
+
+Build the four Linux and macOS archives:
+
+```sh
+make release VERSION=0.1.0
+```
+
+Outputs go to `dist/0.1.0/`. Each archive contains an executable named
+`codex-limits`, this README, the preview image, and the MIT license.
+`SHA256SUMS` lists exactly the four archives for that version. Builds use
+`CGO_ENABLED=0` and have no native library dependency.
+
+Releases are manual. After local checks pass, tag the reviewed commit with the
+matching version, such as `v0.1.0`, and attach that version's four archives and
+`SHA256SUMS` to its GitHub release. There is no CI or automatic publishing.
+
+Runtime verification has been performed on Linux. macOS binaries are
+cross-built; they have not been tested on a Mac.
+
+Codex CLI 0.155.1 was checked for app-server startup and logged-out account
+handling. A live quota read also passed through the OAuth-file fallback.
+Signed-in app-server responses are covered by offline fixtures.
+
+To regenerate the synthetic preview, build the binary and run
+`python3 scripts/render-demo.py`. Python is only used for this documentation
+utility.
+
+## License
+
+[MIT](LICENSE). Copyright 2026 unmanbearpig.
 
 ## Account interface references
 

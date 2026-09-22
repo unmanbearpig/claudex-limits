@@ -1,6 +1,22 @@
+# Build output
+/codex-limits
+/dist/
+*.test
+coverage.out
 __pycache__/
 *.py[cod]
-.mypy_cache/
-.venv/
-codex-limits
-dist/
+
+# Local credentials and quota history
+.env
+.env.*
+!.env.example
+auth.json
+auth.json.*
+codex-*.json
+.codex/
+/auth/
+/history/
+
+# Editor and OS files
+.DS_Store
+*.swp
