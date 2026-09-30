@@ -72,6 +72,7 @@ token or silently switching to a different saved account.
 
 The offline tests cover credential discovery and rotation, both response shapes,
 missing values, errors without secret disclosure, retry delays, cancellation,
-combined snapshots, persisted history, and Claude's orange chart line. No signed-in
-Claude login was available for an authenticated endpoint check. Keychain execution
-requires macOS and has not been runtime-tested here.
+combined snapshots, persisted history, and Claude's orange chart line. An
+authenticated live endpoint check passed on Linux with five-hour, weekly, and
+additional provider windows. Keychain execution requires macOS and has not been
+runtime-tested here.

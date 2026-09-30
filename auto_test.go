@@ -160,7 +160,7 @@ func TestClaudeChartAndLegendAreOrangeInSelectedAndCombinedModes(t *testing.T) {
 		history := []Sample{{At: now, Values: map[string]float64{name: 75}}}
 		var output strings.Builder
 		dashboard(&output, io.Discard, history, &snapshot, 60, now, "", true, now)
-		if strings.Count(output.String(), "\x1b[38;5;208m") < 2 {
+		if strings.Count(output.String(), "\x1b[38;5;166m") < 2 {
 			t.Fatalf("Claude chart or legend is not orange: %q", output.String())
 		}
 		output.Reset()
@@ -169,7 +169,7 @@ func TestClaudeChartAndLegendAreOrangeInSelectedAndCombinedModes(t *testing.T) {
 			t.Fatal("color-disabled Claude chart contains ANSI escapes")
 		}
 	}
-	if colors := seriesColors([]string{"Claude / 5h", "Claude / Weekly", "Codex / 5h", "Codex / Weekly"}, "all"); colors[0] != 208 || colors[2] != palette[0] || colors[3] != palette[1] {
+	if colors := seriesColors([]string{"Claude / 5h", "Claude / Weekly", "Codex / 5h", "Codex / Weekly"}, "all"); colors[0] != 166 || colors[1] != 214 || colors[2] != palette[0] || colors[3] != palette[1] {
 		t.Fatal("Claude changed the existing Codex series colors")
 	}
 }

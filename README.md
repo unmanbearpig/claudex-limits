@@ -305,9 +305,9 @@ Signed-in app-server responses are covered by offline fixtures.
 
 Claude support is covered by offline fixtures for both usage schemas, automatic
 discovery, credential rotation, partial provider failures, rate-limit backoff,
-history, cancellation, and orange chart rendering. A signed-in Claude account
-was unavailable during development, so an authenticated live Claude quota read
-has not been verified. macOS Keychain reads have not been tested on a Mac.
+history, cancellation, and orange chart rendering. An authenticated live Claude
+quota read passed on Linux, returning five-hour, weekly, and additional provider
+windows. macOS Keychain reads have not been tested on a Mac.
 
 To regenerate the synthetic preview, build the binary and run
 `python3 scripts/render-demo.py`. Python is only used for this documentation

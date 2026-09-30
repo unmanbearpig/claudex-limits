@@ -33,12 +33,16 @@ func seriesColors(names []string, provider string) []int {
 			base := strings.TrimPrefix(name, "Claude / ")
 			switch base {
 			case "5h":
-				colors[i] = claudeColor
+				colors[i] = 166 // Darker orange keeps the session below weekly in prominence.
 			case "Weekly":
 				colors[i] = 214
 			default:
 				shades := []int{209, 215, 216, 202, 173}
 				colors[i] = shades[claudeIndex%len(shades)]
+				bucket, _, _ := strings.Cut(base, " / ")
+				if strings.EqualFold(bucket, "Nimbus Quill") {
+					colors[i] = 94 // Keep this opaque provider bucket subdued.
+				}
 				claudeIndex++
 			}
 		} else {
