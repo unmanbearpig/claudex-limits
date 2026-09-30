@@ -11,7 +11,19 @@ import (
 	"time"
 )
 
-var palette = []int{81, 213, 221, 114, 209, 147}
+const (
+	codexColor  = 75
+	claudeColor = 208
+)
+
+var palette = []int{codexColor, 111, 69, 39, 33, 153}
+
+func providerColor(provider string) int {
+	if provider == "claude" {
+		return claudeColor
+	}
+	return codexColor
+}
 
 func seriesColors(names []string, provider string) []int {
 	colors := make([]int, len(names))
@@ -21,7 +33,7 @@ func seriesColors(names []string, provider string) []int {
 			base := strings.TrimPrefix(name, "Claude / ")
 			switch base {
 			case "5h":
-				colors[i] = 208 // Orange is Claude's default line color.
+				colors[i] = claudeColor
 			case "Weekly":
 				colors[i] = 214
 			default:
@@ -165,13 +177,15 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		cells := make([]string, width)
 		for column := 0; column < width; column++ {
 			if mask := masks[row][column]; mask != 0 {
-				shade := 255
-				if len(owners[row][column]) == 1 {
-					for owner := range owners[row][column] {
-						shade = colors[owner]
+				// A Braille cell has one foreground color. At crossings, retain
+				// the first contributing series' tint instead of turning gray.
+				owner := len(names)
+				for candidate := range owners[row][column] {
+					if candidate < owner {
+						owner = candidate
 					}
 				}
-				cells[column] = colorize(string(rune(0x2800)+rune(mask)), shade, color)
+				cells[column] = colorize(string(rune(0x2800)+rune(mask)), colors[owner], color)
 				continue
 			}
 			grid := " "
@@ -262,15 +276,21 @@ func PrintSnapshot(w io.Writer, snapshot Snapshot) {
 			if index > 0 {
 				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, "%s:\n", claudeBucketName(account.Provider))
+			fmt.Fprint(w, colorize(claudeBucketName(account.Provider)+":\n", providerColor(account.Provider), colorEnabled(w)))
 			if account.Snapshot != nil {
 				PrintSnapshot(w, *account.Snapshot)
 			} else {
-				fmt.Fprintf(w, "Unavailable: %s\n", account.Error)
+				fmt.Fprint(w, colorize("Unavailable: "+account.Error+"\n", providerColor(account.Provider), colorEnabled(w)))
 			}
 		}
 		return
 	}
+	var output strings.Builder
+	printSnapshot(&output, snapshot)
+	fmt.Fprint(w, colorize(output.String(), providerColor(snapshot.Provider), colorEnabled(w)))
+}
+
+func printSnapshot(w io.Writer, snapshot Snapshot) {
 	if len(snapshot.Windows) == 0 && snapshot.FiveHourRemainingPercent == nil && snapshot.WeeklyRemainingPercent == nil && len(snapshot.AdditionalRateLimits) == 0 && snapshot.BankedResets == nil && snapshot.ExtraUsage == nil {
 		fmt.Fprintln(w, "No quota windows reported. The account may be unavailable or still loading.")
 		return
@@ -460,7 +480,14 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	if snapshot != nil && snapshot.PlanType == "demo" {
 		heading = "CODEX LIMITS · DEMO (synthetic)"
 	}
-	fmt.Fprintln(w, clipLine(colorize(fmt.Sprintf("  %s   ·   LIVE   ·   %gs refresh   ·   %s", heading, interval, updated), 81, color), columns))
+	if provider == "all" {
+		heading = colorize("CODEX", codexColor, color) + " + " + colorize("CLAUDE LIMITS", claudeColor, color)
+	}
+	header := fmt.Sprintf("  %s   ·   LIVE   ·   %gs refresh   ·   %s", heading, interval, updated)
+	if provider != "all" {
+		header = colorize(header, providerColor(provider), color)
+	}
+	fmt.Fprintln(w, clipLine(header, columns))
 	fmt.Fprintln(w, clipLine(colorize("  LAST 4 HOURS   ·   0–100% left   ·   newest at right", 245, color), columns))
 	if len(history) == 0 {
 		fmt.Fprintln(w, clipLine("  Waiting for the first sample...", columns))
@@ -494,7 +521,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	if snapshot != nil {
 		for _, account := range snapshot.Accounts {
 			if account.Error != "" {
-				fmt.Fprintln(w, clipLine(colorize("  "+claudeBucketName(account.Provider)+" unavailable · "+account.Error, 209, color), columns))
+				fmt.Fprintln(w, clipLine(colorize("  "+claudeBucketName(account.Provider)+" unavailable · "+account.Error, providerColor(account.Provider), color), columns))
 			}
 		}
 		if banked := snapshot.BankedResets; banked != nil {
@@ -507,11 +534,11 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 			if len(banked.Expirations) > 0 {
 				line += "  ·  next expires in " + displayDuration(banked.Expirations[0].AfterSeconds)
 			}
-			fmt.Fprintln(w, clipLine(colorize(line, 245, color), columns))
+			fmt.Fprintln(w, clipLine(colorize(line, codexColor, color), columns))
 		}
 	}
 	if errorMessage != "" {
-		fmt.Fprintln(w, clipLine(colorize("  Refresh failed · "+errorMessage+" · retrying; values may be stale", 209, color), columns))
+		fmt.Fprintln(w, clipLine(colorize("  Refresh failed · "+errorMessage+" · retrying; values may be stale", providerColor(provider), color), columns))
 	}
 	fmt.Fprintln(w, clipLine(colorize("  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes", 240, color), columns))
 }

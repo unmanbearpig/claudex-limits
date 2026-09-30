@@ -5,8 +5,8 @@ See how much Codex and Claude allowance you have left, without leaving the termi
 `codex-limits` prints a snapshot or a live four-hour chart of the signed-in
 accounts' quota windows. Recent readings survive restarts. It detects existing
 Codex and Claude Code logins automatically, without asking for tokens or starting
-a model turn. When both accounts are signed in, it shows both. Claude's primary
-chart line is orange, with related shades for its other quota windows.
+a model turn. When both accounts are signed in, it shows both. Codex readings
+use blue shades and Claude readings use orange shades, including reset details.
 
 ![Live terminal chart showing synthetic Codex quota data](docs/demo.svg)
 
