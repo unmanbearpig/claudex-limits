@@ -55,6 +55,7 @@ type BankedResets struct {
 // five-hour and weekly fields preserve the original CLI format. Windows holds
 // every quota window, including other durations and buckets.
 type Snapshot struct {
+	Provider                 string            `json:"provider,omitempty"`
 	FiveHourRemainingPercent *float64          `json:"five_hour_remaining_percent,omitempty"`
 	FiveHourReset            *Reset            `json:"five_hour_reset,omitempty"`
 	WeeklyRemainingPercent   *float64          `json:"weekly_remaining_percent,omitempty"`
@@ -63,6 +64,18 @@ type Snapshot struct {
 	BankedResets             *BankedResets     `json:"banked_resets,omitempty"`
 	Windows                  []GenericWindow   `json:"windows"`
 	PlanType                 string            `json:"plan_type,omitempty"`
+	ExtraUsage               *ExtraUsage       `json:"extra_usage,omitempty"`
+	Accounts                 []AccountSnapshot `json:"accounts,omitempty"`
+}
+
+// ExtraUsage preserves the endpoint's spending units. A missing monthly limit
+// is not a zero allowance, and no monthly reset date is inferred.
+type ExtraUsage struct {
+	IsEnabled        bool     `json:"is_enabled"`
+	MonthlyLimit     *float64 `json:"monthly_limit,omitempty"`
+	UsedCredits      *float64 `json:"used_credits,omitempty"`
+	RemainingPercent *float64 `json:"remaining_percent,omitempty"`
+	Currency         string   `json:"currency,omitempty"`
 }
 
 func floatPtr(v float64) *float64 { return &v }

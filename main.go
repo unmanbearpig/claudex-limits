@@ -14,16 +14,17 @@ import (
 var version = "dev"
 
 type options struct {
-	json      bool
-	live      bool
-	interval  float64
-	source    string
-	authFile  string
-	demo      bool
-	showHelp  bool
-	showVer   bool
-	sourceSet bool
-	authSet   bool
+	json        bool
+	live        bool
+	interval    float64
+	source      string
+	authFile    string
+	demo        bool
+	showHelp    bool
+	showVer     bool
+	sourceSet   bool
+	authSet     bool
+	intervalSet bool
 }
 
 func parseOptions(args []string) (options, error) {
@@ -33,7 +34,7 @@ func parseOptions(args []string) (options, error) {
 	fs.BoolVar(&opts.json, "json", false, "print one machine-readable JSON snapshot")
 	fs.BoolVar(&opts.live, "live", false, "show a live four-hour chart including saved readings")
 	fs.Float64Var(&opts.interval, "interval", 5, "live refresh interval in seconds")
-	fs.StringVar(&opts.source, "source", "auto", "account source: auto, codex, or proxy")
+	fs.StringVar(&opts.source, "source", "auto", "account source: auto, codex, proxy, or claude")
 	fs.StringVar(&opts.authFile, "auth-file", "", "read OAuth credentials from this file")
 	fs.BoolVar(&opts.demo, "demo", false, "show synthetic data without login or network")
 	fs.BoolVar(&opts.showHelp, "help", false, "show this help")
@@ -65,14 +66,18 @@ func parseOptions(args []string) (options, error) {
 			intervalSet = true
 		}
 	})
+	opts.intervalSet = intervalSet
 	if !opts.live && intervalSet {
 		return opts, errors.New("--interval requires --live")
 	}
-	if opts.source != "auto" && opts.source != "codex" && opts.source != "proxy" {
-		return opts, fmt.Errorf("invalid --source %q, expected auto, codex, or proxy", opts.source)
+	if opts.source != "auto" && opts.source != "codex" && opts.source != "proxy" && opts.source != "claude" {
+		return opts, fmt.Errorf("invalid --source %q, expected auto, codex, proxy, or claude", opts.source)
 	}
-	if opts.authSet && opts.sourceSet && opts.source != "auto" {
+	if opts.authSet && opts.sourceSet && opts.source != "auto" && opts.source != "claude" {
 		return opts, errors.New("--auth-file cannot be combined with --source codex or --source proxy")
+	}
+	if opts.source == "claude" && !intervalSet {
+		opts.interval = 60
 	}
 	if opts.demo && (opts.authSet || (opts.sourceSet && opts.source != "auto")) {
 		return opts, errors.New("--demo cannot be combined with an account source")
@@ -81,7 +86,7 @@ func parseOptions(args []string) (options, error) {
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprintln(w, "codex-limits prints remaining Codex account allowances.")
+	fmt.Fprintln(w, "codex-limits prints remaining Codex or Claude account allowances.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  codex-limits [flags]")
@@ -89,8 +94,8 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  --json                 print one JSON snapshot")
 	fmt.Fprintln(w, "  --live                 refresh a four-hour chart including saved readings")
-	fmt.Fprintln(w, "  --interval SECONDS     live refresh interval (default 5)")
-	fmt.Fprintln(w, "  --source auto|codex|proxy")
+	fmt.Fprintln(w, "  --interval SECONDS     live refresh interval (default 5; Claude 60)")
+	fmt.Fprintln(w, "  --source auto|codex|proxy|claude")
 	fmt.Fprintln(w, "  --auth-file PATH       use this OAuth file")
 	fmt.Fprintln(w, "  --demo                 use synthetic data, with no login or network")
 	fmt.Fprintln(w, "  --version              print the version")
@@ -123,6 +128,9 @@ func run() int {
 			fmt.Fprintf(os.Stderr, "codex-limits: %v\n", err)
 			return 1
 		}
+	}
+	if provider, ok := source.(interface{ Provider() string }); ok && provider.Provider() == "claude" && !opts.intervalSet {
+		opts.interval = 60
 	}
 	source = withHistory(source, os.Stderr)
 	defer source.Close()

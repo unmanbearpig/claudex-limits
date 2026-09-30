@@ -43,6 +43,25 @@ func newHistoryStore(source Source) (*historyStore, error) {
 			return nil, err
 		}
 		key = "file:" + path
+	case *ClaudeSource:
+		path, err := filepath.Abs(source.Path)
+		if err != nil {
+			return nil, err
+		}
+		key = "claude:" + path
+	case *pacedSource:
+		return newHistoryStore(source.Source)
+	case *unavailableSource:
+		key = "codex-unavailable:" + os.Getenv("CODEX_HOME")
+	case *combinedSource:
+		key = "auto"
+		for _, account := range source.sources {
+			store, err := newHistoryStore(account.source)
+			if err != nil {
+				return nil, err
+			}
+			key += ":" + account.name + ":" + filepath.Base(store.directory)
+		}
 	case *appServerSource:
 		home := strings.TrimSpace(os.Getenv("CODEX_HOME"))
 		if home == "" {
@@ -166,6 +185,13 @@ type recordingSource struct {
 	store    *historyStore
 	warnings io.Writer
 	warned   bool
+}
+
+func (s *recordingSource) Provider() string {
+	if provider, ok := s.Source.(interface{ Provider() string }); ok {
+		return provider.Provider()
+	}
+	return ""
 }
 
 func withHistory(source Source, warnings io.Writer) Source {

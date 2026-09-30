@@ -1,10 +1,12 @@
 # codex-limits
 
-See how much Codex allowance you have left, without leaving the terminal.
+See how much Codex and Claude allowance you have left, without leaving the terminal.
 
 `codex-limits` prints a snapshot or a live four-hour chart of the signed-in
-account's quota windows. Recent readings survive restarts. It uses your
-existing Codex login and never starts a model turn or consumes a banked reset.
+accounts' quota windows. Recent readings survive restarts. It detects existing
+Codex and Claude Code logins automatically, without asking for tokens or starting
+a model turn. When both accounts are signed in, it shows both. Claude's primary
+chart line is orange, with related shades for its other quota windows.
 
 ![Live terminal chart showing synthetic Codex quota data](docs/demo.svg)
 
@@ -12,7 +14,7 @@ Synthetic preview from `codex-limits --demo --live`. No account data appears
 in this image.
 
 Linux and macOS are supported on amd64 and arm64. Windows is unsupported.
-This is an independent project, unaffiliated with OpenAI.
+This is an independent project, unaffiliated with OpenAI or Anthropic.
 
 ## Quick start
 
@@ -21,12 +23,20 @@ for now. The [Releases page](https://github.com/unmanbearpig/codex-limits/releas
 will host the archives described below.
 
 After installation, sign in with the
-[Codex CLI](https://developers.openai.com/codex/cli/) and run:
+[Codex CLI](https://developers.openai.com/codex/cli/) or
+[Claude Code](https://code.claude.com/docs/en/authentication), then run:
 
 ```sh
-codex login
 codex-limits
 codex-limits --live
+```
+
+The default discovers both providers. To select one:
+
+```sh
+codex-limits --source codex
+codex-limits --source claude
+codex-limits --source claude --live
 ```
 
 Try the chart without an account or network access:
@@ -104,17 +114,18 @@ codex-limits --demo --live
 
 The project uses only the Go standard library. Go is needed to build the
 executable, not to run it. A real account read normally also needs the Codex
-CLI installed and signed in.
+CLI installed and signed in. Claude usage reads can use Claude Code's saved
+OAuth credentials directly.
 
 ## Flags
 
 ```text
 --json                 print one JSON snapshot and exit
 --live                 restore recent readings and refresh the chart until Ctrl+C
---interval SECONDS     live refresh interval, default 5
---source auto|codex|proxy
-                       choose account discovery mode, default auto
---auth-file PATH       use exactly this native or proxy OAuth file
+--interval SECONDS     live refresh interval, default 5; Claude alone defaults to 60
+--source auto|codex|proxy|claude
+                       choose account discovery mode, default auto detects both
+--auth-file PATH       use exactly this OAuth file; add --source claude for Claude
 --demo                 use synthetic data, without login or network
 --version              print the build version
 --help                 print flag help
@@ -127,11 +138,13 @@ with an explicit account source.
 
 ## Accounts and privacy
 
-With `--source auto`, the command uses `codex app-server` when the Codex CLI
-is available. If the CLI is missing or reports no ChatGPT login, it checks the
+With `--source auto`, the command discovers Codex and Claude independently.
+If both logins are present, successful readings remain visible when the other
+provider fails. Codex discovery uses `codex app-server` when the Codex CLI is
+available. If the CLI is missing or reports no ChatGPT login, it checks the
 native OAuth file and then the proxy OAuth directory. A transient failure
-from an authenticated app server is reported instead of switching accounts.
-`--source codex` never falls back.
+from an authenticated app server is reported instead of switching Codex accounts.
+`--source codex` never falls back to a file or another provider.
 
 The native file is `${CODEX_HOME}/auth.json` when `CODEX_HOME` is set, or
 `~/.codex/auth.json`. The Codex CLI can also use a platform keychain, which
@@ -149,6 +162,33 @@ editing or refreshing them. The Codex CLI owns credential refresh for the
 app-server source. No OAuth credentials are included in JSON output or saved
 quota history. There is no project telemetry.
 
+Claude discovery reads `${CLAUDE_CONFIG_DIR}/.credentials.json`, or
+`~/.claude/.credentials.json` when `CLAUDE_CONFIG_DIR` is unset. On macOS,
+the selected Claude Code Keychain item takes precedence over that file.
+Keychain reads disable authentication dialogs; inaccessible credentials are
+reported as unavailable. Automatic discovery uses the local `claude auth status`
+command to check for a Keychain login. No login flow is opened.
+
+If the default Claude file is absent on Linux, discovery checks the most recently
+modified active `claude-*.json` in `~/.config/cliproxyapi/auth`. A custom
+`CLAUDE_CONFIG_DIR` selects that configuration without falling back to a proxy
+account. `--source claude --auth-file PATH` selects exactly one native or flat
+proxy OAuth file and bypasses the Keychain. `--auth-file` without a Claude source
+continues to select a Codex file.
+
+Claude reads use `GET https://api.anthropic.com/api/oauth/usage` with the saved
+OAuth access token and `anthropic-beta: oauth-2025-04-20`. This is an undocumented
+account endpoint used by quota monitors, so Anthropic may change it. It reports
+the allowance percentages and reset times available to that login. API keys and
+inference-only tokens cannot provide Claude subscription quotas.
+
+The monitor reads Claude credentials again on each fetch, so it picks up refreshes
+made by Claude Code. It never refreshes or rewrites those credentials itself.
+Expired tokens produce an error until Claude Code refreshes them. Claude usage
+fetches run once a minute in a combined chart. Claude-only charts default to
+60 seconds and accept `--interval` overrides. HTTP 429 responses pause requests
+for at least a minute and respect a longer `Retry-After` value.
+
 Never attach OAuth files, tokens, or unredacted account logs to an issue.
 
 ## Live chart and history
@@ -165,8 +205,9 @@ refreshes. Starting `--live` restores the last four hours. History lives in:
   `~/.cache/codex-limits/history` when `XDG_CACHE_HOME` is unset.
 - macOS: `~/Library/Caches/codex-limits/history`.
 
-Each OAuth file path and Codex home has separate history. Changing the account
-within the same file or Codex home keeps that source's history; delete its
+Each OAuth file path, Claude configuration, and Codex home has separate history.
+Combined provider selections have their own history. Changing the account
+within the same file or configuration keeps that source's history; delete its
 history directory if you want a fresh chart.
 
 Snapshots are appended to hourly files so concurrent calls do not overwrite
@@ -191,6 +232,18 @@ writes saved history.
   appears when reported. `expirations` lists known available credit
   expirations; `expiration_details_partial` means those details are incomplete.
 - `plan_type` is descriptive. It does not determine supported quota windows.
+- Claude-only responses include `provider: "claude"` and use the same remaining
+  percentage and window fields. Model-specific and other reported windows are
+  retained, including the newer `limits` response array.
+- When both providers are discovered, `provider` is `"all"`, and `accounts`
+  contains each provider's `snapshot` or `error`. Combined `windows` have provider
+  prefixes, such as `Claude / 5h`. Original top-level five-hour, weekly, plan,
+  additional-limit, and banked-reset fields continue to refer to Codex.
+- Claude's optional `extra_usage` contains `is_enabled`, reported `monthly_limit`
+  and `used_credits`, and optional `remaining_percent` and `currency`. Spending
+  amounts preserve the endpoint's units, generally minor currency units. A
+  percentage is shown only for an enabled, positive monthly cap. No monthly
+  reset time is inferred.
 
 Unknown percentages and durations are omitted. An empty `windows` list means
 no quota windows were reported, not 100% remaining or unlimited usage.
@@ -201,6 +254,10 @@ no quota windows were reported, not 100% remaining or unlimited usage.
   also pass a known OAuth file with `--auth-file PATH`.
 - `ChatGPT rejected the saved OAuth token`: make a Codex request so the CLI
   can refresh its credential, then retry.
+- `Claude OAuth token has expired`: reopen Claude Code to let it refresh the
+  credential, then retry. Use `claude auth login` if the login was revoked.
+- `Claude OAuth token lacks user:profile scope`: use a Claude Code subscription
+  login. `claude setup-token` tokens provide inference access without quota access.
 - `No quota windows reported`: the response was valid but contained no
   recognized quota values. Check the account and try again later.
 - `codex-limits: command not found`: check that `$HOME/.local/bin` is on
@@ -231,7 +288,7 @@ make release VERSION=0.1.0
 ```
 
 Outputs go to `dist/0.1.0/`. Each archive contains an executable named
-`codex-limits`, this README, the preview image, and the MIT license.
+`codex-limits`, this README, the quota interface notes, the preview image, and the MIT license.
 `SHA256SUMS` lists exactly the four archives for that version. Builds use
 `CGO_ENABLED=0` and have no native library dependency.
 
@@ -246,6 +303,12 @@ Codex CLI 0.155.1 was checked for app-server startup and logged-out account
 handling. A live quota read also passed through the OAuth-file fallback.
 Signed-in app-server responses are covered by offline fixtures.
 
+Claude support is covered by offline fixtures for both usage schemas, automatic
+discovery, credential rotation, partial provider failures, rate-limit backoff,
+history, cancellation, and orange chart rendering. A signed-in Claude account
+was unavailable during development, so an authenticated live Claude quota read
+has not been verified. macOS Keychain reads have not been tested on a Mac.
+
 To regenerate the synthetic preview, build the binary and run
 `python3 scripts/render-demo.py`. Python is only used for this documentation
 utility.
@@ -258,3 +321,4 @@ utility.
 
 - [Codex authentication and credential storage](https://developers.openai.com/codex/auth/)
 - [Codex app-server account API](https://developers.openai.com/codex/app-server/)
+- [Claude quota interface research](docs/claude-quotas.md)

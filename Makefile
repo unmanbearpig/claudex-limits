@@ -27,7 +27,7 @@ release:
 		mkdir -p "$$output/$$target"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o "$$output/$$target/codex-limits" .; \
 		archive="codex-limits-$(VERSION)-$$target.tar.gz"; \
-		tar -czf "$$output/$$archive" -C "$$output/$$target" codex-limits -C "$(CURDIR)" README.md LICENSE docs/demo.svg; \
+		tar -czf "$$output/$$archive" -C "$$output/$$target" codex-limits -C "$(CURDIR)" README.md LICENSE docs/demo.svg docs/claude-quotas.md; \
 		rm -f "$$output/$$target/codex-limits"; \
 		rmdir "$$output/$$target"; \
 		set -- "$$@" "$$archive"; \

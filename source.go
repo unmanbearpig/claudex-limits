@@ -491,6 +491,19 @@ func (s *demoSource) Read() (Snapshot, error) {
 }
 
 func OpenSource(source, authFile string, explicitAuth bool) (Source, error) {
+	if source == "claude" {
+		if explicitAuth && authFile == "" {
+			return nil, errors.New("--auth-file requires a path")
+		}
+		return OpenClaudeSource(authFile)
+	}
+	if (source == "auto" || source == "") && authFile == "" && !explicitAuth {
+		return openAutoSource()
+	}
+	return openCodexSource(source, authFile, explicitAuth)
+}
+
+func openCodexSource(source, authFile string, explicitAuth bool) (Source, error) {
 	if explicitAuth || authFile != "" {
 		if source != "" && source != "auto" {
 			return nil, errors.New("--auth-file cannot be combined with --source codex or --source proxy")
@@ -527,7 +540,7 @@ func OpenSource(source, authFile string, explicitAuth bool) (Source, error) {
 		}
 		path, err := findProxyAuth()
 		if err != nil {
-			return nil, errors.New("no ChatGPT account is available; run `codex login` or provide --auth-file")
+			return nil, &LoginRequiredError{Message: "no ChatGPT account is available; run `codex login` or provide --auth-file"}
 		}
 		return NewFileSource(path), nil
 	default:

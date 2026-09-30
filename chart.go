@@ -13,6 +13,30 @@ import (
 
 var palette = []int{81, 213, 221, 114, 209, 147}
 
+func seriesColors(names []string, provider string) []int {
+	colors := make([]int, len(names))
+	codexIndex, claudeIndex := 0, 0
+	for i, name := range names {
+		if provider == "claude" || strings.HasPrefix(name, "Claude / ") {
+			base := strings.TrimPrefix(name, "Claude / ")
+			switch base {
+			case "5h":
+				colors[i] = 208 // Orange is Claude's default line color.
+			case "Weekly":
+				colors[i] = 214
+			default:
+				shades := []int{209, 215, 216, 202, 173}
+				colors[i] = shades[claudeIndex%len(shades)]
+				claudeIndex++
+			}
+		} else {
+			colors[i] = palette[codexIndex%len(palette)]
+			codexIndex++
+		}
+	}
+	return colors
+}
+
 var brailleBits = [2][4]byte{{1, 2, 4, 64}, {8, 16, 32, 128}}
 
 type Sample struct {
@@ -41,6 +65,10 @@ func clampInt(value, low, high int) int {
 // ChartLines rasterizes samples into a fixed four-hour Braille chart. Empty
 // Values maps create gaps and never connect to a later successful sample.
 func ChartLines(history []Sample, end time.Time, width, height int, names []string, color bool, intervals ...float64) []string {
+	return chartLines(history, end, width, height, names, color, seriesColors(names, ""), intervals...)
+}
+
+func chartLines(history []Sample, end time.Time, width, height int, names []string, color bool, colors []int, intervals ...float64) []string {
 	width = clampInt(width, 8, 240)
 	height = clampInt(height, 5, 30)
 	if end.IsZero() {
@@ -140,7 +168,7 @@ func ChartLines(history []Sample, end time.Time, width, height int, names []stri
 				shade := 255
 				if len(owners[row][column]) == 1 {
 					for owner := range owners[row][column] {
-						shade = palette[owner%len(palette)]
+						shade = colors[owner]
 					}
 				}
 				cells[column] = colorize(string(rune(0x2800)+rune(mask)), shade, color)
@@ -229,7 +257,21 @@ func printWindow(w io.Writer, label string, value *float64, reset *Reset, indent
 }
 
 func PrintSnapshot(w io.Writer, snapshot Snapshot) {
-	if len(snapshot.Windows) == 0 && snapshot.FiveHourRemainingPercent == nil && snapshot.WeeklyRemainingPercent == nil && len(snapshot.AdditionalRateLimits) == 0 && snapshot.BankedResets == nil {
+	if len(snapshot.Accounts) > 0 {
+		for index, account := range snapshot.Accounts {
+			if index > 0 {
+				fmt.Fprintln(w)
+			}
+			fmt.Fprintf(w, "%s:\n", claudeBucketName(account.Provider))
+			if account.Snapshot != nil {
+				PrintSnapshot(w, *account.Snapshot)
+			} else {
+				fmt.Fprintf(w, "Unavailable: %s\n", account.Error)
+			}
+		}
+		return
+	}
+	if len(snapshot.Windows) == 0 && snapshot.FiveHourRemainingPercent == nil && snapshot.WeeklyRemainingPercent == nil && len(snapshot.AdditionalRateLimits) == 0 && snapshot.BankedResets == nil && snapshot.ExtraUsage == nil {
 		fmt.Fprintln(w, "No quota windows reported. The account may be unavailable or still loading.")
 		return
 	}
@@ -244,6 +286,13 @@ func PrintSnapshot(w io.Writer, snapshot Snapshot) {
 			continue
 		}
 		printWindow(w, window.Name, window.RemainingPercent, window.Reset, "")
+	}
+	if extra := snapshot.ExtraUsage; extra != nil {
+		if !extra.IsEnabled {
+			fmt.Fprintln(w, "Extra usage: disabled")
+		} else if extra.RemainingPercent == nil {
+			fmt.Fprintln(w, "Extra usage: enabled; monthly allowance unavailable")
+		}
 	}
 	if banked := snapshot.BankedResets; banked != nil {
 		if banked.Available != nil {
@@ -279,6 +328,9 @@ func snapshotValues(snapshot Snapshot) map[string]float64 {
 		if window.RemainingPercent != nil {
 			values[window.Name] = clampFloat(*window.RemainingPercent, 0, 100)
 		}
+	}
+	if len(snapshot.Accounts) > 0 {
+		return values
 	}
 	if snapshot.FiveHourRemainingPercent != nil {
 		values["5h"] = clampFloat(*snapshot.FiveHourRemainingPercent, 0, 100)
@@ -395,6 +447,16 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		updated = lastSuccess.Local().Format("15:04:05")
 	}
 	heading := "CODEX LIMITS"
+	provider := ""
+	if snapshot != nil {
+		provider = snapshot.Provider
+		if provider == "claude" {
+			heading = "CLAUDE LIMITS"
+		} else if provider == "all" {
+			heading = "CODEX + CLAUDE LIMITS"
+		}
+	}
+	colors := seriesColors(names, provider)
 	if snapshot != nil && snapshot.PlanType == "demo" {
 		heading = "CODEX LIMITS · DEMO (synthetic)"
 	}
@@ -404,7 +466,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		fmt.Fprintln(w, clipLine("  Waiting for the first sample...", columns))
 	} else {
 		height := clampInt(rows-8-len(names), 5, 20)
-		for _, line := range ChartLines(history, end, width, height, names, color, interval) {
+		for _, line := range chartLines(history, end, width, height, names, color, colors, interval) {
 			fmt.Fprintln(w, clipLine(line, columns))
 		}
 	}
@@ -427,9 +489,14 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 				}
 			}
 		}
-		fmt.Fprintln(w, clipLine(colorize(line, palette[index%len(palette)], color), columns))
+		fmt.Fprintln(w, clipLine(colorize(line, colors[index], color), columns))
 	}
 	if snapshot != nil {
+		for _, account := range snapshot.Accounts {
+			if account.Error != "" {
+				fmt.Fprintln(w, clipLine(colorize("  "+claudeBucketName(account.Provider)+" unavailable · "+account.Error, 209, color), columns))
+			}
+		}
 		if banked := snapshot.BankedResets; banked != nil {
 			line := "  Banked resets "
 			if banked.Available == nil {
@@ -473,6 +540,9 @@ func RunLive(w io.Writer, source Source, interval float64) error {
 		}
 	}()
 	var snapshot *Snapshot
+	if provider, ok := source.(interface{ Provider() string }); ok && provider.Provider() != "" {
+		snapshot = &Snapshot{Provider: provider.Provider()}
+	}
 	var lastSuccess time.Time
 	render := func(errorMessage string, now time.Time) error {
 		var frame strings.Builder

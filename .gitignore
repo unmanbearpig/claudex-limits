@@ -13,7 +13,11 @@ __pycache__/
 auth.json
 auth.json.*
 codex-*.json
+claude-*.json
+.credentials.json
+.credentials.json.*
 .codex/
+.claude/
 /auth/
 /history/
 
