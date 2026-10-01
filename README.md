@@ -194,11 +194,10 @@ Never attach OAuth files, tokens, or unredacted account logs to an issue.
 
 ## Live chart and history
 
-The chart uses colored Braille characters with one dot column each. The newest
-reading is on the right.
-Numbered labels at the right edge match the legend, so each line is identifiable
-without comparing shades. Overlapping lines alternate colors one dot at a time.
-Codex lines use blue shades; Claude lines use orange shades.
+The chart uses colored Braille characters with two dot columns each. The newest
+reading is on the right. Overlapping lines alternate colors by character;
+the two dots in each character share one color. Codex lines use blue shades;
+Claude lines use orange shades. The color legend sits below the chart.
 Its horizontal axis always spans four hours. Missed refreshes appear as gaps;
 the last successful values remain visible and are marked stale. Use a
 Unicode/ANSI-capable terminal and resize it to adjust the chart.

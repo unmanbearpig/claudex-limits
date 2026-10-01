@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"regexp"
 	"strconv"
@@ -14,7 +13,7 @@ import (
 var coloredBraille = regexp.MustCompile(`\x1b\[38;5;([0-9]+)m([\x{2801}-\x{28ff}])`)
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func TestChartSharedDotsAlternateColors(t *testing.T) {
+func TestChartSharedCellsAlternateColorsAndKeepDenseDots(t *testing.T) {
 	end := time.Unix(1_800_000_000, 0)
 	for _, test := range []struct {
 		name   string
@@ -40,8 +39,8 @@ func TestChartSharedDotsAlternateColors(t *testing.T) {
 			counts := make(map[int]int)
 			for index, match := range matches {
 				mask := []rune(match[2])[0] - 0x2800
-				if mask&(mask-1) != 0 {
-					t.Fatalf("horizontal shared cell contains multiple dots: %q", match[2])
+				if mask&0x47 == 0 || mask&0xb8 == 0 {
+					t.Fatalf("horizontal shared cell leaves a dot column empty: %q", match[2])
 				}
 				shade, _ := strconv.Atoi(match[1])
 				counts[shade]++
@@ -87,7 +86,7 @@ func TestChartSeparateLinesKeepTheirOwnColors(t *testing.T) {
 	}
 }
 
-func TestDashboardLabelsMatchLegendAndFitTerminal(t *testing.T) {
+func TestDashboardUsesFullWidthAndColorLegendWithoutNumbers(t *testing.T) {
 	t.Setenv("COLUMNS", "72")
 	t.Setenv("LINES", "24")
 	now := time.Unix(1_800_000_000, 0)
@@ -102,20 +101,20 @@ func TestDashboardLabelsMatchLegendAndFitTerminal(t *testing.T) {
 		var output strings.Builder
 		dashboard(&output, io.Discard, history, &snapshot, 5, now, "", color, now)
 		plain := ansiEscape.ReplaceAllString(output.String(), "")
-		for index, name := range names {
-			if !strings.Contains(plain, fmt.Sprintf("[%d] ━━  %s", index+1, name)) {
-				t.Fatalf("missing numbered legend for %s: %s", name, plain)
+		for _, name := range names {
+			if !strings.Contains(plain, "━━  "+name) {
+				t.Fatalf("missing color legend for %s: %s", name, plain)
 			}
 		}
-		if !strings.Contains(plain, "│ [1][3][4]") {
-			t.Fatalf("overlapping session lines lack both endpoint labels: %s", plain)
-		}
-		if !strings.Contains(plain, "│ [2]\n") {
-			t.Fatalf("Claude weekly label does not match its chart row: %s", plain)
+		if regexp.MustCompile(`\[[0-9]+\]`).MatchString(plain) {
+			t.Fatalf("frame still contains numbered labels: %s", plain)
 		}
 		for _, line := range strings.Split(plain, "\n") {
 			if len([]rune(line)) >= 72 {
 				t.Fatalf("frame line exceeds the terminal width: %q", line)
+			}
+			if strings.Contains(line, "│") && len([]rune(line)) != 71 {
+				t.Fatalf("chart does not use the full terminal width: %q", line)
 			}
 		}
 	}

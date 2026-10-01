@@ -70,8 +70,7 @@ func seriesColors(names []string, provider string) []int {
 	return colors
 }
 
-// One dot column per character lets consecutive dots have independent colors.
-var brailleBits = [4]byte{1, 2, 4, 64}
+var brailleBits = [2][4]byte{{1, 2, 4, 64}, {8, 16, 32, 128}}
 
 type Sample struct {
 	At        time.Time
@@ -117,7 +116,7 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		}
 	}
 	start := end.Add(-time.Duration(HistorySeconds) * time.Second)
-	pixelsX, pixelsY := width, height*4
+	pixelsX, pixelsY := width*2, height*4
 	masks := make([][]byte, height)
 	owners := make([][]map[int]struct{}, height)
 	for row := range masks {
@@ -128,8 +127,8 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		if x < 0 || y < 0 || x >= pixelsX || y >= pixelsY {
 			return
 		}
-		row, column := y/4, x
-		masks[row][column] |= brailleBits[y%4]
+		row, column := y/4, x/2
+		masks[row][column] |= brailleBits[x%2][y%4]
 		if owners[row][column] == nil {
 			owners[row][column] = make(map[int]struct{})
 		}
@@ -199,7 +198,7 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		cells := make([]string, width)
 		for column := 0; column < width; column++ {
 			if mask := masks[row][column]; mask != 0 {
-				// Cycle overlapping series at each horizontal dot.
+				// Braille characters have one color; cycle overlapping series.
 				contributors := make([]int, 0, len(owners[row][column]))
 				for candidate := range owners[row][column] {
 					contributors = append(contributors, candidate)
@@ -474,26 +473,6 @@ func clipLine(line string, columns int) string {
 	return result.String()
 }
 
-func chartLabels(values map[string]float64, names []string, height int, colors []int, color bool) ([]string, int) {
-	labels := make([]string, height)
-	widths := make([]int, height)
-	maxWidth := 0
-	for index, name := range names {
-		value, ok := values[name]
-		if !ok {
-			continue
-		}
-		row := int(((100-clampFloat(value, 0, 100))/100)*float64(height*4-1)+.5) / 4
-		label := fmt.Sprintf("[%d]", index+1)
-		labels[row] += colorize(label, colors[index], color)
-		widths[row] += len(label)
-		if widths[row] > maxWidth {
-			maxWidth = widths[row]
-		}
-	}
-	return labels, maxWidth
-}
-
 func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, interval float64, lastSuccess time.Time, errorMessage string, color bool, end time.Time, settings ...displayOptions) {
 	opts := displayOptions{}
 	if len(settings) > 0 {
@@ -506,6 +485,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		values = snapshotValues(*snapshot)
 	}
 	columns, rows := terminalSize(terminal)
+	width := clampInt(columns-9, 8, 240)
 	namesSet := make(map[string]struct{})
 	for _, sample := range history {
 		for name := range sample.Values {
@@ -555,18 +535,13 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		fmt.Fprintln(w, clipLine("  Waiting for the first sample...", columns))
 	} else {
 		height := clampInt(rows-8-len(names), 5, 20)
-		labels, labelWidth := chartLabels(values, names, height, colors, color)
-		width := clampInt(columns-10-labelWidth, 8, 240)
-		for index, line := range chartLines(history, end, width, height, names, color, colors, interval) {
-			if index >= 1 && index <= height && labels[index-1] != "" {
-				line += " " + labels[index-1]
-			}
+		for _, line := range chartLines(history, end, width, height, names, color, colors, interval) {
 			fmt.Fprintln(w, clipLine(line, columns))
 		}
 	}
 	for index, name := range names {
 		value, ok := values[name]
-		line := fmt.Sprintf("  [%d] ━━  %s  ", index+1, name)
+		line := fmt.Sprintf("  ━━  %s  ", name)
 		if ok {
 			line += fmt.Sprintf("%5.1f%% left", value)
 		} else {
