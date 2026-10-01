@@ -8,19 +8,19 @@ Codex and Claude Code logins automatically, without asking for tokens or startin
 a model turn. When both accounts are signed in, it shows both. Codex readings
 use blue shades and Claude readings use orange shades, including reset details.
 
-![Live terminal chart showing synthetic Codex quota data](docs/demo.svg)
+![Live terminal chart showing remaining Codex and Claude allowances](docs/live-chart.png)
 
-Synthetic preview from `claudex-limits --demo --live`. No account data appears
-in this image.
+Live four-hour chart with Codex and Claude readings, reset timers, and banked
+resets.
 
 Linux and macOS are supported on amd64 and arm64. Windows is unsupported.
 This is an independent project, unaffiliated with OpenAI or Anthropic.
 
 ## Quick start
 
-Binary releases have not been published yet. [Build from source](#build-from-source)
-for now. The [Releases page](https://github.com/unmanbearpig/claudex-limits/releases)
-will host the archives described below.
+Download a [release archive](https://github.com/unmanbearpig/claudex-limits/releases/latest)
+for your platform and follow the [installation instructions](#install-a-release),
+or [build from source](#build-from-source).
 
 After installation, sign in with the
 [Codex CLI](https://developers.openai.com/codex/cli/) or
@@ -62,8 +62,7 @@ A downloaded binary needs no Go toolchain, Python, or proxy service.
 | macOS | Apple silicon | `darwin-arm64` |
 
 In the directory containing your downloads, set the version and target to
-match the archive you chose. For example, a Linux amd64 release named
-`claudex-limits-0.1.0-linux-amd64.tar.gz` would use:
+match the archive you chose. For v0.1.0 on Linux amd64:
 
 ```sh
 version=0.1.0
@@ -303,7 +302,8 @@ make release VERSION=0.1.0
 ```
 
 Outputs go to `dist/0.1.0/`. Each archive contains an executable named
-`claudex-limits`, this README, the quota interface notes, the preview image, and the MIT license.
+`claudex-limits`, this README, the quota interface notes, the screenshot, the
+synthetic preview, and the MIT license.
 `SHA256SUMS` lists exactly the four archives for that version. Builds use
 `CGO_ENABLED=0` and have no native library dependency.
 
