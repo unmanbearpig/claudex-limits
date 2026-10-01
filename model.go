@@ -51,7 +51,7 @@ type BankedResets struct {
 	ExpirationDetailsPartial bool         `json:"expiration_details_partial,omitempty"`
 }
 
-// Snapshot is the stable JSON format emitted by codex-limits. The named
+// Snapshot is the stable JSON format emitted by claudex-limits. The named
 // five-hour and weekly fields preserve the original CLI format. Windows holds
 // every quota window, including other durations and buckets.
 type Snapshot struct {

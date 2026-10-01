@@ -29,7 +29,7 @@ type options struct {
 
 func parseOptions(args []string) (options, error) {
 	var opts options
-	fs := flag.NewFlagSet("codex-limits", flag.ContinueOnError)
+	fs := flag.NewFlagSet("claudex-limits", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&opts.json, "json", false, "print one machine-readable JSON snapshot")
 	fs.BoolVar(&opts.live, "live", false, "show a live four-hour chart including saved readings")
@@ -86,10 +86,10 @@ func parseOptions(args []string) (options, error) {
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprintln(w, "codex-limits prints remaining Codex or Claude account allowances.")
+	fmt.Fprintln(w, "claudex-limits prints remaining Codex or Claude account allowances.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  codex-limits [flags]")
+	fmt.Fprintln(w, "  claudex-limits [flags]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  --json                 print one JSON snapshot")
@@ -104,7 +104,7 @@ func printHelp(w io.Writer) {
 func run() int {
 	opts, err := parseOptions(os.Args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "codex-limits: %v\n", err)
+		fmt.Fprintf(os.Stderr, "claudex-limits: %v\n", err)
 		fmt.Fprintln(os.Stderr, "Try --help for usage.")
 		return 2
 	}
@@ -125,7 +125,7 @@ func run() int {
 			if errors.Is(err, errInterrupted) {
 				return 0
 			}
-			fmt.Fprintf(os.Stderr, "codex-limits: %v\n", err)
+			fmt.Fprintf(os.Stderr, "claudex-limits: %v\n", err)
 			return 1
 		}
 	}
@@ -136,21 +136,21 @@ func run() int {
 	defer source.Close()
 	if opts.live {
 		if err := RunLive(os.Stdout, source, opts.interval); err != nil {
-			fmt.Fprintf(os.Stderr, "codex-limits: %v\n", err)
+			fmt.Fprintf(os.Stderr, "claudex-limits: %v\n", err)
 			return 1
 		}
 		return 0
 	}
 	snapshot, err := source.Read()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "codex-limits: %v\n", err)
+		fmt.Fprintf(os.Stderr, "claudex-limits: %v\n", err)
 		return 1
 	}
 	if opts.json {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetEscapeHTML(false)
 		if err := encoder.Encode(snapshot); err != nil {
-			fmt.Fprintf(os.Stderr, "codex-limits: %v\n", err)
+			fmt.Fprintf(os.Stderr, "claudex-limits: %v\n", err)
 			return 1
 		}
 		return 0

@@ -1,4 +1,4 @@
-# Go rewrite of codex-limits
+# Go rewrite of claudex-limits
 
 Completed in September 2026. This is a historical design record; the README
 describes the current behavior and supported platforms.

@@ -20,7 +20,8 @@ const historyFileLayout = "2006-01-02T15.jsonl"
 // overwrite one another. Hourly files let us prune old data without rewriting
 // a file another process might be appending to.
 type historyStore struct {
-	directory string
+	directory       string
+	legacyDirectory string
 }
 
 type historyRecord struct {
@@ -75,7 +76,11 @@ func newHistoryStore(source Source) (*historyStore, error) {
 	default:
 		return nil, errors.New("history is unavailable for this source")
 	}
-	return &historyStore{directory: filepath.Join(directory, "codex-limits", "history", fmt.Sprintf("%x", sha256.Sum256([]byte(key))))}, nil
+	account := fmt.Sprintf("%x", sha256.Sum256([]byte(key)))
+	return &historyStore{
+		directory:       filepath.Join(directory, "claudex-limits", "history", account),
+		legacyDirectory: filepath.Join(directory, "codex-limits", "history", account),
+	}, nil
 }
 
 func (s *historyStore) append(record historyRecord) error {
@@ -126,7 +131,7 @@ func (s *historyStore) prune(now time.Time) error {
 func (s *historyStore) load(now time.Time) ([]Sample, error) {
 	entries, err := os.ReadDir(s.directory)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		entries, err = nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -174,6 +179,12 @@ func (s *historyStore) load(now time.Time) ([]Sample, error) {
 			loadErr = err
 		}
 	}
+	// Keep recent readings from before the rename visible until they expire.
+	if s.legacyDirectory != "" {
+		legacy, err := (&historyStore{directory: s.legacyDirectory}).load(now)
+		history = append(history, legacy...)
+		loadErr = errors.Join(loadErr, err)
+	}
 	// Concurrent processes may finish writing in a different order than they
 	// fetched their readings. Chart drawing and age trimming require time order.
 	sort.SliceStable(history, func(i, j int) bool { return history[i].At.Before(history[j].At) })
@@ -200,7 +211,7 @@ func withHistory(source Source, warnings io.Writer) Source {
 	}
 	store, err := newHistoryStore(source)
 	if err != nil {
-		fmt.Fprintf(warnings, "codex-limits: history unavailable: %v\n", err)
+		fmt.Fprintf(warnings, "claudex-limits: history unavailable: %v\n", err)
 		return source
 	}
 	return &recordingSource{Source: source, store: store, warnings: warnings}
@@ -214,7 +225,7 @@ func (s *recordingSource) Read() (Snapshot, error) {
 	}
 	if saveErr := s.store.append(record); saveErr != nil {
 		if !s.warned {
-			fmt.Fprintf(s.warnings, "codex-limits: could not save history: %v\n", saveErr)
+			fmt.Fprintf(s.warnings, "claudex-limits: could not save history: %v\n", saveErr)
 			s.warned = true
 		}
 	} else {
@@ -226,7 +237,7 @@ func (s *recordingSource) Read() (Snapshot, error) {
 func (s *recordingSource) History(now time.Time) []Sample {
 	history, err := s.store.load(now)
 	if err != nil {
-		fmt.Fprintf(s.warnings, "codex-limits: could not load all history: %v\n", err)
+		fmt.Fprintf(s.warnings, "claudex-limits: could not load all history: %v\n", err)
 	}
 	return history
 }

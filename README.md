@@ -1,8 +1,8 @@
-# codex-limits
+# claudex-limits
 
 See how much Codex and Claude allowance you have left, without leaving the terminal.
 
-`codex-limits` prints a snapshot or a live four-hour chart of the signed-in
+`claudex-limits` prints a snapshot or a live four-hour chart of the signed-in
 accounts' quota windows. Recent readings survive restarts. It detects existing
 Codex and Claude Code logins automatically, without asking for tokens or starting
 a model turn. When both accounts are signed in, it shows both. Codex readings
@@ -10,7 +10,7 @@ use blue shades and Claude readings use orange shades, including reset details.
 
 ![Live terminal chart showing synthetic Codex quota data](docs/demo.svg)
 
-Synthetic preview from `codex-limits --demo --live`. No account data appears
+Synthetic preview from `claudex-limits --demo --live`. No account data appears
 in this image.
 
 Linux and macOS are supported on amd64 and arm64. Windows is unsupported.
@@ -19,7 +19,7 @@ This is an independent project, unaffiliated with OpenAI or Anthropic.
 ## Quick start
 
 Binary releases have not been published yet. [Build from source](#build-from-source)
-for now. The [Releases page](https://github.com/unmanbearpig/codex-limits/releases)
+for now. The [Releases page](https://github.com/unmanbearpig/claudex-limits/releases)
 will host the archives described below.
 
 After installation, sign in with the
@@ -27,31 +27,31 @@ After installation, sign in with the
 [Claude Code](https://code.claude.com/docs/en/authentication), then run:
 
 ```sh
-codex-limits
-codex-limits --live
+claudex-limits
+claudex-limits --live
 ```
 
 The default discovers both providers. To select one:
 
 ```sh
-codex-limits --source codex
-codex-limits --source claude
-codex-limits --source claude --live
+claudex-limits --source codex
+claudex-limits --source claude
+claudex-limits --source claude --live
 ```
 
 Try the chart without an account or network access:
 
 ```sh
-codex-limits --demo --live
+claudex-limits --demo --live
 ```
 
 Use Ctrl+C to quit. The command restores the cursor and previous terminal
-screen. `codex-limits --json` prints one machine-readable snapshot.
+screen. `claudex-limits --json` prints one machine-readable snapshot.
 
 ## Install a release
 
 Download the matching archive and `SHA256SUMS` from
-[Releases](https://github.com/unmanbearpig/codex-limits/releases).
+[Releases](https://github.com/unmanbearpig/claudex-limits/releases).
 A downloaded binary needs no Go toolchain, Python, or proxy service.
 
 | System | Processor | Target |
@@ -63,12 +63,12 @@ A downloaded binary needs no Go toolchain, Python, or proxy service.
 
 In the directory containing your downloads, set the version and target to
 match the archive you chose. For example, a Linux amd64 release named
-`codex-limits-0.1.0-linux-amd64.tar.gz` would use:
+`claudex-limits-0.1.0-linux-amd64.tar.gz` would use:
 
 ```sh
 version=0.1.0
 target=linux-amd64
-archive="codex-limits-$version-$target.tar.gz"
+archive="claudex-limits-$version-$target.tar.gz"
 ```
 
 Verify the selected archive on Linux:
@@ -86,12 +86,12 @@ awk -v archive="$archive" '$2 == archive { print }' SHA256SUMS | shasum -a 256 -
 Continue only if the check prints `OK`. On either system, unpack and install:
 
 ```sh
-mkdir -p "codex-limits-$version-$target"
-tar -xzf "$archive" -C "codex-limits-$version-$target"
+mkdir -p "claudex-limits-$version-$target"
+tar -xzf "$archive" -C "claudex-limits-$version-$target"
 mkdir -p "$HOME/.local/bin"
-install -m 0755 "codex-limits-$version-$target/codex-limits" "$HOME/.local/bin/codex-limits"
+install -m 0755 "claudex-limits-$version-$target/claudex-limits" "$HOME/.local/bin/claudex-limits"
 export PATH="$HOME/.local/bin:$PATH"
-codex-limits --version
+claudex-limits --version
 ```
 
 The `export` adds the install directory to `PATH` for the current shell.
@@ -103,13 +103,13 @@ Install Go 1.26 or newer, Git, and Make. Clone the repository, or use an
 existing checkout:
 
 ```sh
-git clone https://github.com/unmanbearpig/codex-limits.git
-cd codex-limits
+git clone https://github.com/unmanbearpig/claudex-limits.git
+cd claudex-limits
 make build VERSION=dev
 mkdir -p "$HOME/.local/bin"
-install -m 0755 codex-limits "$HOME/.local/bin/codex-limits"
+install -m 0755 claudex-limits "$HOME/.local/bin/claudex-limits"
 export PATH="$HOME/.local/bin:$PATH"
-codex-limits --demo --live
+claudex-limits --demo --live
 ```
 
 The project uses only the Go standard library. Go is needed to build the
@@ -201,9 +201,14 @@ Unicode/ANSI-capable terminal and resize it to adjust the chart.
 Every fetched snapshot is saved, including normal calls, `--json`, and live
 refreshes. Starting `--live` restores the last four hours. History lives in:
 
-- Linux: `$XDG_CACHE_HOME/codex-limits/history`, or
-  `~/.cache/codex-limits/history` when `XDG_CACHE_HOME` is unset.
-- macOS: `~/Library/Caches/codex-limits/history`.
+- Linux: `$XDG_CACHE_HOME/claudex-limits/history`, or
+  `~/.cache/claudex-limits/history` when `XDG_CACHE_HOME` is unset.
+- macOS: `~/Library/Caches/claudex-limits/history`.
+
+Recent readings in the previous `codex-limits/history` cache directory are
+also loaded until they fall outside the four-hour chart. New readings are saved
+under `claudex-limits/history`.
+To clear all history after upgrading, delete both directories.
 
 Each OAuth file path, Claude configuration, and Codex home has separate history.
 Combined provider selections have their own history. Changing the account
@@ -218,7 +223,7 @@ writes saved history.
 
 ## JSON output
 
-`codex-limits --json` preserves these fields:
+`claudex-limits --json` preserves these fields:
 
 - `five_hour_remaining_percent` and `weekly_remaining_percent` are percentages
   left. Matching `*_reset` objects contain `after_seconds`, local `at`,
@@ -260,8 +265,8 @@ no quota windows were reported, not 100% remaining or unlimited usage.
   login. `claude setup-token` tokens provide inference access without quota access.
 - `No quota windows reported`: the response was valid but contained no
   recognized quota values. Check the account and try again later.
-- `codex-limits: command not found`: check that `$HOME/.local/bin` is on
-  `PATH` and that the installed executable is named `codex-limits`.
+- `claudex-limits: command not found`: check that `$HOME/.local/bin` is on
+  `PATH` and that the installed executable is named `claudex-limits`.
 - Redirected `--live` output uses plain-text frames. `NO_COLOR=1` disables
   color; `TERM=dumb` also disables the alternate screen.
 
@@ -288,7 +293,7 @@ make release VERSION=0.1.0
 ```
 
 Outputs go to `dist/0.1.0/`. Each archive contains an executable named
-`codex-limits`, this README, the quota interface notes, the preview image, and the MIT license.
+`claudex-limits`, this README, the quota interface notes, the preview image, and the MIT license.
 `SHA256SUMS` lists exactly the four archives for that version. Builds use
 `CGO_ENABLED=0` and have no native library dependency.
 

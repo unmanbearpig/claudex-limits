@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="784" height="532" viewBox="0 0 784 532">
-<title>codex-limits live chart with synthetic demo data</title>
+<title>claudex-limits live chart with synthetic demo data</title>
 <desc>Two quota lines show the percentage remaining over four hours. This preview uses no account data.</desc>
 <rect width="784" height="532" rx="8" fill="#101418"/>
 <g font-family="DejaVu Sans Mono, monospace" font-size="14" xml:space="preserve">
-<text x="20" y="30" fill="#5fafff">  CODEX LIMITS · DEMO (synthetic)   ·   LIVE   ·   5s refresh   ·   23:09:20</text>
+<text x="20" y="30" fill="#5fafff">  CLAUDEX LIMITS · DEMO (synthetic)   ·   LIVE   ·   5s refresh   ·   22:37:53</text>
 <text x="20" y="50" fill="#8a8a8a">  LAST 4 HOURS   ·   0–100% left   ·   newest at right</text>
 <text x="20" y="70" fill="#d8dee9">      </text>
 <text x="70.4" y="70" fill="#585858">┌───────────────────────────────────────────────────────────────────────────────┐</text>
@@ -1338,7 +1338,7 @@
 <text x="20" y="410" fill="#d8dee9">      </text>
 <text x="70.4" y="410" fill="#585858">└───────────────────────────────────────────────────────────────────────────────┘</text>
 <text x="20" y="430" fill="#d8dee9">       </text>
-<text x="78.8" y="430" fill="#8a8a8a">19:09:20                           21:09:20                            23:09:20</text>
+<text x="78.8" y="430" fill="#8a8a8a">18:37:53                           20:37:53                            22:37:53</text>
 <text x="20" y="450" fill="#5fafff">  ━━  5h   64.0% left  ·  resets in 1h 59m</text>
 <text x="20" y="470" fill="#87afff">  ━━  Weekly   44.7% left  ·  resets in 3d 23h 59m</text>
 <text x="20" y="490" fill="#5fafff">  Banked resets 2</text>

@@ -71,7 +71,7 @@ def render(frame):
     width, height = 784, len(lines) * 20 + 32
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-        '<title>codex-limits live chart with synthetic demo data</title>',
+        '<title>claudex-limits live chart with synthetic demo data</title>',
         '<desc>Two quota lines show the percentage remaining over four hours. This preview uses no account data.</desc>',
         f'<rect width="{width}" height="{height}" rx="8" fill="#101418"/>',
         '<g font-family="DejaVu Sans Mono, monospace" font-size="14" xml:space="preserve">',
@@ -96,7 +96,7 @@ def render(frame):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=Path("./codex-limits"))
+    parser.add_argument("--binary", type=Path, default=Path("./claudex-limits"))
     parser.add_argument("--output", type=Path, default=Path("docs/demo.svg"))
     args = parser.parse_args()
     preview = render(capture(args.binary))

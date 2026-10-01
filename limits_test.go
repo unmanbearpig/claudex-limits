@@ -279,13 +279,29 @@ func TestPrintSnapshotDoesNotDuplicateNamedAdditionalWindows(t *testing.T) {
 	}
 }
 
+func TestCodexExecutableAcceptsRenamedAndLegacyOverrides(t *testing.T) {
+	for _, test := range []struct{ current, legacy, want string }{
+		{"", "", "codex"},
+		{" /new/codex ", " /old/codex ", "/new/codex"},
+		{" \t", " /old/codex ", "/old/codex"},
+	} {
+		t.Run(test.want, func(t *testing.T) {
+			t.Setenv("CLAUDEX_LIMITS_CODEX_BIN", test.current)
+			t.Setenv("CODEX_LIMITS_CODEX_BIN", test.legacy)
+			if got := codexExecutable(); got != test.want {
+				t.Fatalf("Codex executable = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestAppServerProtocolReusesChildAndCleansUp(t *testing.T) {
 	directory := t.TempDir()
 	script := filepath.Join(directory, "fake-codex")
 	calls := filepath.Join(directory, "calls")
 	program := `#!/bin/sh
 while IFS= read -r line; do
-  printf '%s\n' "$line" >> "$CODEX_LIMITS_FAKE_CALLS"
+  printf '%s\n' "$line" >> "$CLAUDEX_LIMITS_FAKE_CALLS"
   id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
   case "$line" in
     *'"method":"initialize"'*) printf '{"id":%s,"result":{}}\n' "$id";;
@@ -298,8 +314,8 @@ done`
 	if err := os.WriteFile(script, []byte(program), 0700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CODEX_LIMITS_CODEX_BIN", script)
-	t.Setenv("CODEX_LIMITS_FAKE_CALLS", calls)
+	t.Setenv("CLAUDEX_LIMITS_CODEX_BIN", script)
+	t.Setenv("CLAUDEX_LIMITS_FAKE_CALLS", calls)
 	source, err := NewAppServerSource()
 	if err != nil {
 		t.Fatal(err)
@@ -377,14 +393,14 @@ func TestAppServerStartupInterruptReapsChild(t *testing.T) {
 	program := `#!/bin/sh
 while IFS= read -r line; do
   case "$line" in
-    *'"method":"initialize"'*) printf '%s\n' "$$" > "$CODEX_LIMITS_STALL_PID"; while IFS= read -r ignored; do :; done;;
+    *'"method":"initialize"'*) printf '%s\n' "$$" > "$CLAUDEX_LIMITS_STALL_PID"; while IFS= read -r ignored; do :; done;;
   esac
 done`
 	if err := os.WriteFile(script, []byte(program), 0700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CODEX_LIMITS_CODEX_BIN", script)
-	t.Setenv("CODEX_LIMITS_STALL_PID", pidPath)
+	t.Setenv("CLAUDEX_LIMITS_CODEX_BIN", script)
+	t.Setenv("CLAUDEX_LIMITS_STALL_PID", pidPath)
 	result := make(chan error, 1)
 	go func() {
 		_, err := NewAppServerSource()

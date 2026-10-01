@@ -54,6 +54,45 @@ func TestHistorySurvivesReopenAndRetainsFourHours(t *testing.T) {
 	}
 }
 
+func TestHistoryLoadsReadingsFromBeforeRename(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	store, err := newHistoryStore(NewFileSource(filepath.Join(cache, "account.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := filepath.Base(store.directory)
+	if store.directory != filepath.Join(cache, "claudex-limits", "history", account) {
+		t.Fatalf("new history directory = %q", store.directory)
+	}
+	legacy := &historyStore{directory: filepath.Join(cache, "codex-limits", "history", account)}
+	now := time.Now()
+	for _, record := range []historyRecord{
+		{At: now.Add(-4*time.Hour - time.Second), Snapshot: historySnapshot(99)},
+		{At: now.Add(-2 * time.Hour), Snapshot: historySnapshot(90)},
+		{At: now.Add(-time.Hour)},
+	} {
+		if err := legacy.append(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err := store.load(now)
+	if err != nil || len(history) != 2 || history[0].Values["5h"] != 90 || len(history[1].Values) != 0 {
+		t.Fatalf("legacy history before first new reading = %#v, %v", history, err)
+	}
+	if err := store.append(historyRecord{At: now, Snapshot: historySnapshot(70)}); err != nil {
+		t.Fatal(err)
+	}
+	history, err = store.load(now)
+	if err != nil || len(history) != 3 || history[0].Values["5h"] != 90 || len(history[1].Values) != 0 || history[2].Values["5h"] != 70 {
+		t.Fatalf("combined history after first new reading = %#v, %v", history, err)
+	}
+	history, err = store.load(now.Add(5 * time.Hour))
+	if err != nil || len(history) != 0 {
+		t.Fatalf("expired history = %#v, %v", history, err)
+	}
+}
+
 func TestHistoryConcurrentWritersKeepEveryReading(t *testing.T) {
 	directory := t.TempDir()
 	now := time.Now()
@@ -167,12 +206,12 @@ func TestHistorySeparatesSourcesAndExcludesDemo(t *testing.T) {
 // Run the actual CLI in another process so successive calls share only files,
 // not memory, and --json output and signal handling are exercised as shipped.
 func TestHistoryCLIHelper(t *testing.T) {
-	if os.Getenv("CODEX_LIMITS_TEST_CLI") != "1" {
+	if os.Getenv("CLAUDEX_LIMITS_TEST_CLI") != "1" {
 		return
 	}
 	for i, arg := range os.Args {
 		if arg == "--" {
-			os.Args = append([]string{"codex-limits"}, os.Args[i+1:]...)
+			os.Args = append([]string{"claudex-limits"}, os.Args[i+1:]...)
 			os.Exit(run())
 		}
 	}
@@ -191,19 +230,19 @@ while IFS= read -r line; do
     *'"method":"initialize"'*) printf '{"id":%s,"result":{}}\n' "$id";;
     *'"method":"initialized"'*) :;;
     *'"method":"account/read"'*) printf '{"id":%s,"result":{"account":{"type":"chatgpt"}}}\n' "$id";;
-    *'"method":"account/rateLimits/read"'*) printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":25,"windowDurationMins":%s}}}}\n' "$id" "$CODEX_LIMITS_TEST_WINDOW";;
+    *'"method":"account/rateLimits/read"'*) printf '{"id":%s,"result":{"rateLimits":{"primary":{"usedPercent":25,"windowDurationMins":%s}}}}\n' "$id" "$CLAUDEX_LIMITS_TEST_WINDOW";;
     *) exit 9;;
   esac
 done`
 	if err := os.WriteFile(script, []byte(program), 0700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CODEX_LIMITS_CODEX_BIN", script)
+	t.Setenv("CLAUDEX_LIMITS_CODEX_BIN", script)
 	call := func(window string, args ...string) *exec.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		t.Cleanup(cancel)
 		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestHistoryCLIHelper$", "--", "--source", "codex"}, args...)...)
-		cmd.Env = append(os.Environ(), "CODEX_LIMITS_TEST_CLI=1", "CODEX_LIMITS_TEST_WINDOW="+window)
+		cmd.Env = append(os.Environ(), "CLAUDEX_LIMITS_TEST_CLI=1", "CLAUDEX_LIMITS_TEST_WINDOW="+window)
 		return cmd
 	}
 	if output, err := call("15").CombinedOutput(); err != nil || !strings.Contains(string(output), "15m left") {

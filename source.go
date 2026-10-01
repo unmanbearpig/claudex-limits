@@ -179,7 +179,7 @@ func (s *FileSource) fetch(ctx context.Context, endpoint, name string, auth cred
 	request.Header.Set("ChatGPT-Account-Id", auth.AccountID)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("OAI-Product-Sku", "codex")
-	request.Header.Set("User-Agent", "codex-limits/1")
+	request.Header.Set("User-Agent", "claudex-limits/1")
 	client := s.Client
 	if client == nil {
 		client = &http.Client{Timeout: requestTimeout}
@@ -259,8 +259,10 @@ type appServerSource struct {
 }
 
 func codexExecutable() string {
-	if override := strings.TrimSpace(os.Getenv("CODEX_LIMITS_CODEX_BIN")); override != "" {
-		return override
+	for _, name := range []string{"CLAUDEX_LIMITS_CODEX_BIN", "CODEX_LIMITS_CODEX_BIN"} {
+		if override := strings.TrimSpace(os.Getenv(name)); override != "" {
+			return override
+		}
 	}
 	return "codex"
 }
@@ -285,7 +287,7 @@ func NewAppServerSource() (*appServerSource, error) {
 	source := &appServerSource{command: command, stdin: stdin, messages: make(chan rpcMessage, 16), readerErr: make(chan error, 1), readDone: make(chan struct{}), closed: make(chan struct{})}
 	go source.readMessages(stdout)
 	if _, err := source.request("initialize", map[string]any{
-		"clientInfo":   map[string]any{"name": "codex-limits", "title": "codex-limits", "version": version},
+		"clientInfo":   map[string]any{"name": "claudex-limits", "title": "claudex-limits", "version": version},
 		"capabilities": map[string]any{},
 	}, 10*time.Second, interrupts); err != nil {
 		source.Close()

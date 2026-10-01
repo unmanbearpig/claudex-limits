@@ -470,11 +470,13 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	if !lastSuccess.IsZero() {
 		updated = lastSuccess.Local().Format("15:04:05")
 	}
-	heading := "CODEX LIMITS"
+	heading := "CLAUDEX LIMITS"
 	provider := ""
 	if snapshot != nil {
 		provider = snapshot.Provider
-		if provider == "claude" {
+		if provider == "" || provider == "codex" {
+			heading = "CODEX LIMITS"
+		} else if provider == "claude" {
 			heading = "CLAUDE LIMITS"
 		} else if provider == "all" {
 			heading = "CODEX + CLAUDE LIMITS"
@@ -482,7 +484,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	}
 	colors := seriesColors(names, provider)
 	if snapshot != nil && snapshot.PlanType == "demo" {
-		heading = "CODEX LIMITS · DEMO (synthetic)"
+		heading = "CLAUDEX LIMITS · DEMO (synthetic)"
 	}
 	if provider == "all" {
 		heading = colorize("CODEX", codexColor, color) + " + " + colorize("CLAUDE LIMITS", claudeColor, color)

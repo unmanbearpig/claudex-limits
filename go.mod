@@ -1,3 +1,3 @@
-module github.com/unmanbearpig/codex-limits
+module github.com/unmanbearpig/claudex-limits
 
 go 1.26
