@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-var coloredBraille = regexp.MustCompile(`\x1b\[38;5;([0-9]+)m[\x{2801}-\x{28ff}]`)
+var coloredBraille = regexp.MustCompile(`\x1b\[38;5;([0-9]+)m([\x{2801}-\x{28ff}])`)
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func TestChartSharedCellsAlternateColorsAndPreserveDots(t *testing.T) {
+func TestChartSharedDotsAlternateColors(t *testing.T) {
 	end := time.Unix(1_800_000_000, 0)
 	for _, test := range []struct {
 		name   string
@@ -39,6 +39,10 @@ func TestChartSharedCellsAlternateColorsAndPreserveDots(t *testing.T) {
 			shades := seriesColors(test.names, "all")
 			counts := make(map[int]int)
 			for index, match := range matches {
+				mask := []rune(match[2])[0] - 0x2800
+				if mask&(mask-1) != 0 {
+					t.Fatalf("horizontal shared cell contains multiple dots: %q", match[2])
+				}
 				shade, _ := strconv.Atoi(match[1])
 				counts[shade]++
 				if index > 0 && match[1] == matches[index-1][1] {

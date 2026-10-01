@@ -70,7 +70,8 @@ func seriesColors(names []string, provider string) []int {
 	return colors
 }
 
-var brailleBits = [2][4]byte{{1, 2, 4, 64}, {8, 16, 32, 128}}
+// One dot column per character lets consecutive dots have independent colors.
+var brailleBits = [4]byte{1, 2, 4, 64}
 
 type Sample struct {
 	At        time.Time
@@ -116,7 +117,7 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		}
 	}
 	start := end.Add(-time.Duration(HistorySeconds) * time.Second)
-	pixelsX, pixelsY := width*2, height*4
+	pixelsX, pixelsY := width, height*4
 	masks := make([][]byte, height)
 	owners := make([][]map[int]struct{}, height)
 	for row := range masks {
@@ -127,8 +128,8 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		if x < 0 || y < 0 || x >= pixelsX || y >= pixelsY {
 			return
 		}
-		row, column := y/4, x/2
-		masks[row][column] |= brailleBits[x%2][y%4]
+		row, column := y/4, x
+		masks[row][column] |= brailleBits[y%4]
 		if owners[row][column] == nil {
 			owners[row][column] = make(map[int]struct{})
 		}
@@ -198,7 +199,7 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		cells := make([]string, width)
 		for column := 0; column < width; column++ {
 			if mask := masks[row][column]; mask != 0 {
-				// Braille cells have one color; cycle through overlapping series.
+				// Cycle overlapping series at each horizontal dot.
 				contributors := make([]int, 0, len(owners[row][column]))
 				for candidate := range owners[row][column] {
 					contributors = append(contributors, candidate)
