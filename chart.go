@@ -18,6 +18,23 @@ const (
 
 var palette = []int{codexColor, 111, 69, 39, 33, 153}
 
+type displayOptions struct {
+	showNimbusQuill bool
+}
+
+func (opts displayOptions) visible(name, provider string) bool {
+	if opts.showNimbusQuill {
+		return true
+	}
+	if strings.HasPrefix(name, "Claude / ") {
+		name = strings.TrimPrefix(name, "Claude / ")
+	} else if provider != "claude" {
+		return true
+	}
+	bucket, _, _ := strings.Cut(name, " / ")
+	return !strings.EqualFold(bucket, "Nimbus Quill")
+}
+
 func providerColor(provider string) int {
 	if provider == "claude" {
 		return claudeColor
@@ -181,14 +198,13 @@ func chartLines(history []Sample, end time.Time, width, height int, names []stri
 		cells := make([]string, width)
 		for column := 0; column < width; column++ {
 			if mask := masks[row][column]; mask != 0 {
-				// A Braille cell has one foreground color. At crossings, retain
-				// the first contributing series' tint instead of turning gray.
-				owner := len(names)
+				// Braille cells have one color; cycle through overlapping series.
+				contributors := make([]int, 0, len(owners[row][column]))
 				for candidate := range owners[row][column] {
-					if candidate < owner {
-						owner = candidate
-					}
+					contributors = append(contributors, candidate)
 				}
+				sort.Ints(contributors)
+				owner := contributors[column%len(contributors)]
 				cells[column] = colorize(string(rune(0x2800)+rune(mask)), colors[owner], color)
 				continue
 			}
@@ -274,7 +290,7 @@ func printWindow(w io.Writer, label string, value *float64, reset *Reset, indent
 	fmt.Fprintf(w, "%s%-12s %s%s\n", indent, label+" left:", displayPercent(value), displayReset(reset))
 }
 
-func PrintSnapshot(w io.Writer, snapshot Snapshot) {
+func PrintSnapshot(w io.Writer, snapshot Snapshot, settings ...displayOptions) {
 	if len(snapshot.Accounts) > 0 {
 		for index, account := range snapshot.Accounts {
 			if index > 0 {
@@ -282,19 +298,23 @@ func PrintSnapshot(w io.Writer, snapshot Snapshot) {
 			}
 			fmt.Fprint(w, colorize(claudeBucketName(account.Provider)+":\n", providerColor(account.Provider), colorEnabled(w)))
 			if account.Snapshot != nil {
-				PrintSnapshot(w, *account.Snapshot)
+				PrintSnapshot(w, *account.Snapshot, settings...)
 			} else {
 				fmt.Fprint(w, colorize("Unavailable: "+account.Error+"\n", providerColor(account.Provider), colorEnabled(w)))
 			}
 		}
 		return
 	}
+	opts := displayOptions{}
+	if len(settings) > 0 {
+		opts = settings[0]
+	}
 	var output strings.Builder
-	printSnapshot(&output, snapshot)
+	printSnapshot(&output, snapshot, opts)
 	fmt.Fprint(w, colorize(output.String(), providerColor(snapshot.Provider), colorEnabled(w)))
 }
 
-func printSnapshot(w io.Writer, snapshot Snapshot) {
+func printSnapshot(w io.Writer, snapshot Snapshot, opts displayOptions) {
 	if len(snapshot.Windows) == 0 && snapshot.FiveHourRemainingPercent == nil && snapshot.WeeklyRemainingPercent == nil && len(snapshot.AdditionalRateLimits) == 0 && snapshot.BankedResets == nil && snapshot.ExtraUsage == nil {
 		fmt.Fprintln(w, "No quota windows reported. The account may be unavailable or still loading.")
 		return
@@ -306,6 +326,9 @@ func printSnapshot(w io.Writer, snapshot Snapshot) {
 		printWindow(w, "Weekly", snapshot.WeeklyRemainingPercent, snapshot.WeeklyReset, "")
 	}
 	for _, window := range snapshot.Windows {
+		if !opts.visible(window.Name, snapshot.Provider) {
+			continue
+		}
 		if window.Name == "5h" || window.Name == "Weekly" || strings.HasSuffix(window.Name, " / 5h") || strings.HasSuffix(window.Name, " / Weekly") {
 			continue
 		}
@@ -336,6 +359,9 @@ func printSnapshot(w io.Writer, snapshot Snapshot) {
 		}
 	}
 	for _, extra := range snapshot.AdditionalRateLimits {
+		if !opts.visible(extra.Name, snapshot.Provider) {
+			continue
+		}
 		fmt.Fprintf(w, "\n%s:\n", extra.Name)
 		if extra.FiveHourRemainingPercent != nil || extra.FiveHourReset != nil {
 			printWindow(w, "5h", extra.FiveHourRemainingPercent, extra.FiveHourReset, "  ")
@@ -447,17 +473,48 @@ func clipLine(line string, columns int) string {
 	return result.String()
 }
 
-func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, interval float64, lastSuccess time.Time, errorMessage string, color bool, end time.Time) {
+func chartLabels(values map[string]float64, names []string, height int, colors []int, color bool) ([]string, int) {
+	labels := make([]string, height)
+	widths := make([]int, height)
+	maxWidth := 0
+	for index, name := range names {
+		value, ok := values[name]
+		if !ok {
+			continue
+		}
+		row := int(((100-clampFloat(value, 0, 100))/100)*float64(height*4-1)+.5) / 4
+		label := fmt.Sprintf("[%d]", index+1)
+		labels[row] += colorize(label, colors[index], color)
+		widths[row] += len(label)
+		if widths[row] > maxWidth {
+			maxWidth = widths[row]
+		}
+	}
+	return labels, maxWidth
+}
+
+func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, interval float64, lastSuccess time.Time, errorMessage string, color bool, end time.Time, settings ...displayOptions) {
+	opts := displayOptions{}
+	if len(settings) > 0 {
+		opts = settings[0]
+	}
+	provider := ""
+	values := map[string]float64{}
+	if snapshot != nil {
+		provider = snapshot.Provider
+		values = snapshotValues(*snapshot)
+	}
 	columns, rows := terminalSize(terminal)
-	width := clampInt(columns-9, 8, 240)
 	namesSet := make(map[string]struct{})
 	for _, sample := range history {
 		for name := range sample.Values {
-			namesSet[name] = struct{}{}
+			if opts.visible(name, provider) {
+				namesSet[name] = struct{}{}
+			}
 		}
 	}
-	if snapshot != nil {
-		for name := range snapshotValues(*snapshot) {
+	for name := range values {
+		if opts.visible(name, provider) {
 			namesSet[name] = struct{}{}
 		}
 	}
@@ -471,9 +528,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		updated = lastSuccess.Local().Format("15:04:05")
 	}
 	heading := "CLAUDEX LIMITS"
-	provider := ""
 	if snapshot != nil {
-		provider = snapshot.Provider
 		if provider == "" || provider == "codex" {
 			heading = "CODEX LIMITS"
 		} else if provider == "claude" {
@@ -499,17 +554,18 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		fmt.Fprintln(w, clipLine("  Waiting for the first sample...", columns))
 	} else {
 		height := clampInt(rows-8-len(names), 5, 20)
-		for _, line := range chartLines(history, end, width, height, names, color, colors, interval) {
+		labels, labelWidth := chartLabels(values, names, height, colors, color)
+		width := clampInt(columns-10-labelWidth, 8, 240)
+		for index, line := range chartLines(history, end, width, height, names, color, colors, interval) {
+			if index >= 1 && index <= height && labels[index-1] != "" {
+				line += " " + labels[index-1]
+			}
 			fmt.Fprintln(w, clipLine(line, columns))
 		}
 	}
-	values := map[string]float64{}
-	if snapshot != nil {
-		values = snapshotValues(*snapshot)
-	}
 	for index, name := range names {
 		value, ok := values[name]
-		line := fmt.Sprintf("  ━━  %s  ", name)
+		line := fmt.Sprintf("  [%d] ━━  %s  ", index+1, name)
 		if ok {
 			line += fmt.Sprintf("%5.1f%% left", value)
 		} else {
@@ -549,7 +605,7 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	fmt.Fprintln(w, clipLine(colorize("  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes", 240, color), columns))
 }
 
-func RunLive(w io.Writer, source Source, interval float64) error {
+func RunLive(w io.Writer, source Source, interval float64, settings ...displayOptions) error {
 	interactive := isTerminal(w) && os.Getenv("TERM") != "dumb"
 	color := colorEnabled(w)
 	if interval <= 0 || !isFinite(interval) || interval > float64(^uint64(0)>>1)/float64(time.Second) || interval*float64(time.Second) < 1 {
@@ -579,7 +635,7 @@ func RunLive(w io.Writer, source Source, interval float64) error {
 	var lastSuccess time.Time
 	render := func(errorMessage string, now time.Time) error {
 		var frame strings.Builder
-		dashboard(&frame, w, history, snapshot, interval, lastSuccess, errorMessage, color, now)
+		dashboard(&frame, w, history, snapshot, interval, lastSuccess, errorMessage, color, now, settings...)
 		contents := frame.String()
 		if interactive {
 			contents = "\x1b[H" + strings.ReplaceAll(contents, "\n", "\x1b[K\n") + "\x1b[J"

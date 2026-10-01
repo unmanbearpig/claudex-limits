@@ -122,6 +122,7 @@ OAuth credentials directly.
 ```text
 --json                 print one JSON snapshot and exit
 --live                 restore recent readings and refresh the chart until Ctrl+C
+--show-nimbus-quill     include Claude's Nimbus Quill quota bucket
 --interval SECONDS     live refresh interval, default 5; Claude alone defaults to 60
 --source auto|codex|proxy|claude
                        choose account discovery mode, default auto detects both
@@ -194,9 +195,16 @@ Never attach OAuth files, tokens, or unredacted account logs to an issue.
 ## Live chart and history
 
 The chart uses colored Braille cells, with the newest reading on the right.
+Numbered labels at the right edge match the legend, so each line is identifiable
+without comparing shades. Cells shared by multiple lines alternate between
+their colors. Codex lines use blue shades; Claude lines use orange shades.
 Its horizontal axis always spans four hours. Missed refreshes appear as gaps;
 the last successful values remain visible and are marked stale. Use a
 Unicode/ANSI-capable terminal and resize it to adjust the chart.
+
+Claude's Nimbus Quill bucket is hidden in text output and the live chart by
+default. Use `--show-nimbus-quill` to include it. JSON snapshots and saved
+history retain every reported bucket.
 
 Every fetched snapshot is saved, including normal calls, `--json`, and live
 refreshes. Starting `--live` restores the last four hours. History lives in:

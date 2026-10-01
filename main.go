@@ -14,6 +14,7 @@ import (
 var version = "dev"
 
 type options struct {
+	displayOptions
 	json        bool
 	live        bool
 	interval    float64
@@ -33,6 +34,7 @@ func parseOptions(args []string) (options, error) {
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&opts.json, "json", false, "print one machine-readable JSON snapshot")
 	fs.BoolVar(&opts.live, "live", false, "show a live four-hour chart including saved readings")
+	fs.BoolVar(&opts.showNimbusQuill, "show-nimbus-quill", false, "include Claude's Nimbus Quill quota bucket")
 	fs.Float64Var(&opts.interval, "interval", 5, "live refresh interval in seconds")
 	fs.StringVar(&opts.source, "source", "auto", "account source: auto, codex, proxy, or claude")
 	fs.StringVar(&opts.authFile, "auth-file", "", "read OAuth credentials from this file")
@@ -94,6 +96,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  --json                 print one JSON snapshot")
 	fmt.Fprintln(w, "  --live                 refresh a four-hour chart including saved readings")
+	fmt.Fprintln(w, "  --show-nimbus-quill     include Claude's Nimbus Quill quota bucket")
 	fmt.Fprintln(w, "  --interval SECONDS     live refresh interval (default 5; Claude 60)")
 	fmt.Fprintln(w, "  --source auto|codex|proxy|claude")
 	fmt.Fprintln(w, "  --auth-file PATH       use this OAuth file")
@@ -135,7 +138,7 @@ func run() int {
 	source = withHistory(source, os.Stderr)
 	defer source.Close()
 	if opts.live {
-		if err := RunLive(os.Stdout, source, opts.interval); err != nil {
+		if err := RunLive(os.Stdout, source, opts.interval, opts.displayOptions); err != nil {
 			fmt.Fprintf(os.Stderr, "claudex-limits: %v\n", err)
 			return 1
 		}
@@ -155,7 +158,7 @@ func run() int {
 		}
 		return 0
 	}
-	PrintSnapshot(os.Stdout, snapshot)
+	PrintSnapshot(os.Stdout, snapshot, opts.displayOptions)
 	return 0
 }
 
