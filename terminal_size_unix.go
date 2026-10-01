@@ -5,6 +5,7 @@ package main
 import (
 	"io"
 	"os"
+	"os/signal"
 	"syscall"
 	"unsafe"
 )
@@ -13,6 +14,10 @@ type windowSize struct {
 	rows    uint16
 	columns uint16
 	_       uint32
+}
+
+func notifyTerminalResize(ch chan<- os.Signal) {
+	signal.Notify(ch, syscall.SIGWINCH)
 }
 
 func terminalSizeForWriter(w io.Writer) (int, int, bool) {

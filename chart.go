@@ -103,7 +103,7 @@ func ChartLines(history []Sample, end time.Time, width, height int, names []stri
 
 func chartLines(history []Sample, end time.Time, width, height int, names []string, color bool, colors []int, intervals ...float64) []string {
 	width = clampInt(width, 8, 240)
-	height = clampInt(height, 5, 30)
+	height = max(height, 5)
 	if end.IsZero() {
 		for index := len(history) - 1; index >= 0; index-- {
 			if !history[index].At.IsZero() {
@@ -525,6 +525,30 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	if provider == "all" {
 		heading = colorize("CODEX", codexColor, color) + " + " + colorize("CLAUDE LIMITS", claudeColor, color)
 	}
+	footer := make([]string, 0, 4)
+	if snapshot != nil {
+		for _, account := range snapshot.Accounts {
+			if account.Error != "" {
+				footer = append(footer, colorize("  "+claudeBucketName(account.Provider)+" unavailable · "+account.Error, providerColor(account.Provider), color))
+			}
+		}
+		if banked := snapshot.BankedResets; banked != nil {
+			line := "  Banked resets "
+			if banked.Available == nil {
+				line += "?"
+			} else {
+				line += fmt.Sprintf("%d", *banked.Available)
+			}
+			if len(banked.Expirations) > 0 {
+				line += "  ·  next expires in " + displayDuration(banked.Expirations[0].AfterSeconds)
+			}
+			footer = append(footer, colorize(line, codexColor, color))
+		}
+	}
+	if errorMessage != "" {
+		footer = append(footer, colorize("  Refresh failed · "+errorMessage+" · retrying; values may be stale", providerColor(provider), color))
+	}
+	footer = append(footer, colorize("  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes", 240, color))
 	header := fmt.Sprintf("  %s   ·   LIVE   ·   %gs refresh   ·   %s", heading, interval, updated)
 	if provider != "all" {
 		header = colorize(header, providerColor(provider), color)
@@ -534,7 +558,9 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 	if len(history) == 0 {
 		fmt.Fprintln(w, clipLine("  Waiting for the first sample...", columns))
 	} else {
-		height := clampInt(rows-8-len(names), 5, 20)
+		// Reserve two headers, three chart axis/border lines, and the final
+		// terminal row so the trailing newline does not scroll the frame.
+		height := max(rows-6-len(names)-len(footer), 5)
 		for _, line := range chartLines(history, end, width, height, names, color, colors, interval) {
 			fmt.Fprintln(w, clipLine(line, columns))
 		}
@@ -556,29 +582,9 @@ func dashboard(w, terminal io.Writer, history []Sample, snapshot *Snapshot, inte
 		}
 		fmt.Fprintln(w, clipLine(colorize(line, colors[index], color), columns))
 	}
-	if snapshot != nil {
-		for _, account := range snapshot.Accounts {
-			if account.Error != "" {
-				fmt.Fprintln(w, clipLine(colorize("  "+claudeBucketName(account.Provider)+" unavailable · "+account.Error, providerColor(account.Provider), color), columns))
-			}
-		}
-		if banked := snapshot.BankedResets; banked != nil {
-			line := "  Banked resets "
-			if banked.Available == nil {
-				line += "?"
-			} else {
-				line += fmt.Sprintf("%d", *banked.Available)
-			}
-			if len(banked.Expirations) > 0 {
-				line += "  ·  next expires in " + displayDuration(banked.Expirations[0].AfterSeconds)
-			}
-			fmt.Fprintln(w, clipLine(colorize(line, codexColor, color), columns))
-		}
+	for _, line := range footer {
+		fmt.Fprintln(w, clipLine(line, columns))
 	}
-	if errorMessage != "" {
-		fmt.Fprintln(w, clipLine(colorize("  Refresh failed · "+errorMessage+" · retrying; values may be stale", providerColor(provider), color), columns))
-	}
-	fmt.Fprintln(w, clipLine(colorize("  Ctrl+C quit  ·  last 4h of readings  ·  gaps = missed refreshes", 240, color), columns))
 }
 
 func RunLive(w io.Writer, source Source, interval float64, settings ...displayOptions) error {
@@ -590,6 +596,12 @@ func RunLive(w io.Writer, source Source, interval float64, settings ...displayOp
 	interrupts := make(chan os.Signal, 2)
 	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(interrupts)
+	var resizes chan os.Signal
+	if interactive {
+		resizes = make(chan os.Signal, 1)
+		notifyTerminalResize(resizes)
+		defer signal.Stop(resizes)
+	}
 	history := make([]Sample, 0)
 	if saved, ok := source.(interface{ History(time.Time) []Sample }); ok {
 		history = saved.History(time.Now())
@@ -624,68 +636,62 @@ func RunLive(w io.Writer, source Source, interval float64, settings ...displayOp
 			return err
 		}
 	}
+	type readResult struct {
+		snapshot Snapshot
+		err      error
+	}
+	resultCh := make(chan readResult, 1)
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	refresh := timer.C
+	var started time.Time
+	errorMessage := ""
 	for {
-		started := time.Now()
-		resultCh := make(chan struct {
-			snapshot Snapshot
-			err      error
-		}, 1)
-		go func() {
-			current, err := source.Read()
-			resultCh <- struct {
-				snapshot Snapshot
-				err      error
-			}{snapshot: current, err: err}
-		}()
-		var current Snapshot
-		var err error
 		select {
-		case result := <-resultCh:
-			current, err = result.snapshot, result.err
 		case <-interrupts:
 			_ = source.Close()
 			return nil
-		}
-		now := time.Now()
-		errorMessage := ""
-		if err != nil {
-			errorMessage = sanitizeError(err.Error())
-			history = append(history, Sample{At: now, Values: nil})
-		} else {
-			copy := current
-			snapshot = &copy
-			lastSuccess = now
-			if current.PlanType == "demo" && len(history) == 0 {
-				base := snapshotValues(current)
-				for index := 12; index >= 1; index-- {
-					values := make(map[string]float64, len(base))
-					for name, value := range base {
-						variation := float64((index%5)-2) * 2
-						values[name] = clampFloat(value+variation, 0, 100)
+		case <-resizes:
+			if err := render(errorMessage, time.Now()); err != nil {
+				return err
+			}
+		case <-refresh:
+			started = time.Now()
+			refresh = nil // Keep requests serial while allowing resize redraws.
+			go func() {
+				current, err := source.Read()
+				resultCh <- readResult{snapshot: current, err: err}
+			}()
+		case result := <-resultCh:
+			now := time.Now()
+			errorMessage = ""
+			if result.err != nil {
+				errorMessage = sanitizeError(result.err.Error())
+				history = append(history, Sample{At: now, Values: nil})
+			} else {
+				current := result.snapshot
+				snapshot = &current
+				lastSuccess = now
+				if current.PlanType == "demo" && len(history) == 0 {
+					base := snapshotValues(current)
+					for index := 12; index >= 1; index-- {
+						values := make(map[string]float64, len(base))
+						for name, value := range base {
+							variation := float64((index%5)-2) * 2
+							values[name] = clampFloat(value+variation, 0, 100)
+						}
+						history = append(history, Sample{At: now.Add(-time.Duration(index) * 20 * time.Minute), Values: values, Synthetic: true})
 					}
-					history = append(history, Sample{At: now.Add(-time.Duration(index) * 20 * time.Minute), Values: values, Synthetic: true})
 				}
+				history = append(history, Sample{At: now, Values: snapshotValues(current)})
 			}
-			history = append(history, Sample{At: now, Values: snapshotValues(current)})
-		}
-		history = trimHistory(history, now)
-		if err := render(errorMessage, now); err != nil {
-			return err
-		}
-		wait := time.Duration(interval * float64(time.Second))
-		if elapsed := time.Since(started); elapsed < wait {
-			wait -= elapsed
-		} else {
-			wait = 0
-		}
-		timer := time.NewTimer(wait)
-		select {
-		case <-interrupts:
-			if !timer.Stop() {
-				<-timer.C
+			history = trimHistory(history, now)
+			if err := render(errorMessage, now); err != nil {
+				return err
 			}
-			return nil
-		case <-timer.C:
+			wait := max(time.Duration(interval*float64(time.Second))-time.Since(started), 0)
+			timer.Reset(wait)
+			refresh = timer.C
 		}
 	}
 }

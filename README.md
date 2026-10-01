@@ -201,6 +201,8 @@ Claude lines use orange shades. The color legend sits below the chart.
 Its horizontal axis always spans four hours. Missed refreshes appear as gaps;
 the last successful values remain visible and are marked stale. Use a
 Unicode/ANSI-capable terminal and resize it to adjust the chart.
+Resizing redraws immediately without fetching another reading. The chart fills
+the available height after reserving space for the legend and status messages.
 
 Claude's Nimbus Quill bucket is hidden in text output and the live chart by
 default. Use `--show-nimbus-quill` to include it. JSON snapshots and saved

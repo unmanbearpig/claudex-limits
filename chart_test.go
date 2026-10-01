@@ -120,6 +120,72 @@ func TestDashboardUsesFullWidthAndColorLegendWithoutNumbers(t *testing.T) {
 	}
 }
 
+func TestDashboardUsesFullHeightWithLegendAndStatus(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	for _, test := range []struct {
+		name          string
+		columns, rows int
+		status        bool
+	}{
+		{"landscape", 88, 24, false},
+		{"portrait", 40, 80, false},
+		{"tall portrait", 32, 160, false},
+		{"landscape with status", 100, 24, true},
+		{"portrait with status", 48, 100, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("COLUMNS", strconv.Itoa(test.columns))
+			t.Setenv("LINES", strconv.Itoa(test.rows))
+			snapshot := Snapshot{Windows: []GenericWindow{
+				{Name: "5h", RemainingPercent: floatPtr(100)},
+				{Name: "Weekly", RemainingPercent: floatPtr(0)},
+			}}
+			errorMessage := ""
+			if test.status {
+				snapshot.Accounts = []AccountSnapshot{{Provider: "claude", Error: "offline"}}
+				snapshot.BankedResets = &BankedResets{Available: intPtr(2)}
+				errorMessage = "offline"
+			}
+			history := []Sample{{At: now, Values: snapshotValues(snapshot)}}
+			for _, color := range []bool{false, true} {
+				var output strings.Builder
+				dashboard(&output, io.Discard, history, &snapshot, 60, now, errorMessage, color, now)
+				plain := ansiEscape.ReplaceAllString(output.String(), "")
+				lines := strings.Split(strings.TrimSuffix(plain, "\n"), "\n")
+				if len(lines) != test.rows-1 {
+					t.Fatalf("frame uses %d rows, want %d with one row reserved for the final newline", len(lines), test.rows-1)
+				}
+				if !strings.Contains(lines[len(lines)-1], "Ctrl+C quit") {
+					t.Fatal("quit hint is missing from the bottom of the frame")
+				}
+				for _, text := range []string{"━━  5h", "━━  Weekly", "100.0% left", "0.0% left"} {
+					if !strings.Contains(plain, text) {
+						t.Fatalf("frame lost %q: %s", text, plain)
+					}
+				}
+				if !hasBraille(lines[3]) {
+					t.Fatal("100% reading is missing from the top chart row")
+				}
+				for _, line := range lines {
+					if len([]rune(line)) >= test.columns {
+						t.Fatalf("frame exceeds terminal width: %q", line)
+					}
+					if strings.Contains(line, "  0%") && !hasBraille(line) {
+						t.Fatal("0% reading is missing from the bottom chart row")
+					}
+				}
+				if test.status {
+					for _, text := range []string{"Claude unavailable", "Banked resets 2", "Refresh failed"} {
+						if !strings.Contains(plain, text) {
+							t.Fatalf("frame lost status %q: %s", text, plain)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestNimbusQuillHiddenByDefaultIncludingSavedHistory(t *testing.T) {
 	t.Setenv("COLUMNS", "120")
 	t.Setenv("LINES", "32")
