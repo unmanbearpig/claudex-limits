@@ -165,9 +165,11 @@ quota history. There is no project telemetry.
 Claude discovery reads `${CLAUDE_CONFIG_DIR}/.credentials.json`, or
 `~/.claude/.credentials.json` when `CLAUDE_CONFIG_DIR` is unset. On macOS,
 the selected Claude Code Keychain item takes precedence over that file.
-Keychain reads disable authentication dialogs; inaccessible credentials are
-reported as unavailable. Automatic discovery uses the local `claude auth status`
-command to check for a Keychain login. No login flow is opened.
+The monitor reads that item with `/usr/bin/security`, the same reader used by
+Claude Code. macOS may ask for Keychain access if that reader is not already
+authorized. Denied access is reported as unavailable, and reads use the request
+timeout. Automatic discovery uses the local `claude auth status` command to
+check for a Keychain login. No browser login flow is opened.
 
 If the default Claude file is absent on Linux, discovery checks the most recently
 modified active `claude-*.json` in `~/.config/cliproxyapi/auth`. A custom
@@ -272,6 +274,10 @@ no quota windows were reported, not 100% remaining or unlimited usage.
   credential, then retry. Use `claude auth login` if the login was revoked.
 - `Claude OAuth token lacks user:profile scope`: use a Claude Code subscription
   login. `claude setup-token` tokens provide inference access without quota access.
+- `macOS Keychain denied access to Claude OAuth credentials`: allow
+  `/usr/bin/security` to read the `Claude Code-credentials` item in Keychain
+  Access, then retry. You can also select an existing OAuth file with
+  `--source claude --auth-file PATH`.
 - `No quota windows reported`: the response was valid but contained no
   recognized quota values. Check the account and try again later.
 - `claudex-limits: command not found`: check that `$HOME/.local/bin` is on
@@ -311,8 +317,8 @@ Releases are manual. After local checks pass, tag the reviewed commit with the
 matching version, such as `v0.1.0`, and attach that version's four archives and
 `SHA256SUMS` to its GitHub release. There is no CI or automatic publishing.
 
-Runtime verification has been performed on Linux. macOS binaries are
-cross-built; they have not been tested on a Mac.
+Terminal runtime verification has been performed on Linux. Claude Keychain
+and quota reads have also been tested on macOS with a saved Pro login.
 
 Codex CLI 0.155.1 was checked for app-server startup and logged-out account
 handling. A live quota read also passed through the OAuth-file fallback.
@@ -322,7 +328,8 @@ Claude support is covered by offline fixtures for both usage schemas, automatic
 discovery, credential rotation, partial provider failures, rate-limit backoff,
 history, cancellation, and orange chart rendering. An authenticated live Claude
 quota read passed on Linux, returning five-hour, weekly, and additional provider
-windows. macOS Keychain reads have not been tested on a Mac.
+windows. A macOS read through `/usr/bin/security` also passed, returning five-hour
+and weekly quota windows.
 
 To regenerate the synthetic preview, build the binary and run
 `python3 scripts/render-demo.py`. Python is only used for this documentation

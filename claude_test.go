@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +173,57 @@ func TestClaudeKeychainFallbackAndProfileIsolation(t *testing.T) {
 	if _, err := source.credentials(context.Background()); err == nil {
 		t.Fatal("Keychain denial switched accounts")
 	}
+}
+
+func TestClaudeKeychainCommandOutput(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		exitCode int
+		output   string
+		wantErr  string
+		missing  bool
+	}{
+		{name: "credential", output: `{"claudeAiOauth":{"accessToken":"secret-token"}}`},
+		{name: "missing", exitCode: 44, missing: true},
+		{name: "interaction required", exitCode: 36, wantErr: "Keychain denied access"},
+		{name: "access denied", exitCode: 51, output: "secret-token", wantErr: "Keychain denied access"},
+		{name: "canceled", exitCode: 128, wantErr: "Keychain denied access"},
+		{name: "invalid parameter", exitCode: 206, wantErr: "security exit 206"},
+		{name: "empty", output: "\n", wantErr: "credentials in macOS Keychain are empty"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command(os.Args[0], "-test.run=^TestClaudeKeychainCommandHelper$")
+			command.Env = append(os.Environ(), "CLAUDEX_TEST_KEYCHAIN_HELPER=1", "CLAUDEX_TEST_KEYCHAIN_EXIT="+strconv.Itoa(test.exitCode), "CLAUDEX_TEST_KEYCHAIN_OUTPUT="+test.output)
+			contents, err := claudeKeychainCommandOutput(command)
+			if test.missing {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("missing credential error = %v", err)
+				}
+			} else if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("Keychain error = %v, want %q", err, test.wantErr)
+				}
+			} else if err != nil || string(contents) != test.output {
+				t.Fatal("Keychain credential was not returned intact")
+			}
+			if err != nil && (len(contents) != 0 || strings.Contains(err.Error(), "secret-token")) {
+				t.Fatal("Keychain failure disclosed credential contents")
+			}
+		})
+	}
+	if _, err := claudeKeychainCommandOutput(exec.Command(filepath.Join(t.TempDir(), "missing-reader"))); err == nil || strings.Contains(err.Error(), "missing-reader") {
+		t.Fatal("failed to start reader safely")
+	}
+}
+
+func TestClaudeKeychainCommandHelper(t *testing.T) {
+	if os.Getenv("CLAUDEX_TEST_KEYCHAIN_HELPER") != "1" {
+		return
+	}
+	_, _ = io.WriteString(os.Stdout, os.Getenv("CLAUDEX_TEST_KEYCHAIN_OUTPUT"))
+	_, _ = io.WriteString(os.Stderr, "secret-token")
+	code, _ := strconv.Atoi(os.Getenv("CLAUDEX_TEST_KEYCHAIN_EXIT"))
+	os.Exit(code)
 }
 
 func TestClaudeNormalizationHandlesBothSchemasWithoutDuplicates(t *testing.T) {

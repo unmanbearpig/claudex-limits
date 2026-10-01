@@ -45,10 +45,19 @@ monthly reset timestamp.
 Linux Claude Code credentials use `claudeAiOauth.accessToken` inside
 `~/.claude/.credentials.json`, with optional expiry in milliseconds, scopes,
 and subscription type. `CLAUDE_CONFIG_DIR` selects another configuration.
-macOS uses Claude Code's Keychain storage. The monitor uses the system Security
-framework through JXA and sets `kSecUseAuthenticationUIFail`, so discovery does
-not open an authentication dialog. It reads credentials only and leaves token
-refresh to Claude Code. CLIProxyAPI's flat Claude OAuth files are also accepted.
+macOS uses Claude Code's Keychain storage. The monitor reads the selected service
+and account with `/usr/bin/security find-generic-password`, matching Claude Code.
+macOS may ask for Keychain access if that executable is not already authorized.
+It reads credentials only and leaves token refresh to Claude Code. CLIProxyAPI's
+flat Claude OAuth files are also accepted.
+
+A macOS investigation on 2026-10-01 found that the original JXA reader built an
+empty query because Security's Core Foundation constants need conversion with
+`ObjC.castRefToObject`. The query returned `errSecParam`, which the monitor
+misreported as requiring interaction. After correcting the query, Keychain still
+denied access to `osascript`, while Claude Code's `/usr/bin/security` reader
+successfully read the same saved login. Claude Code's access does not authorize
+`osascript`, so the monitor now uses Claude Code's reader instead.
 
 A token with a known scope list must include `user:profile`. Inference-only
 tokens, including those created by `claude setup-token`, cannot read plan usage.
@@ -74,5 +83,6 @@ The offline tests cover credential discovery and rotation, both response shapes,
 missing values, errors without secret disclosure, retry delays, cancellation,
 combined snapshots, persisted history, and Claude's orange chart line. An
 authenticated live endpoint check passed on Linux with five-hour, weekly, and
-additional provider windows. Keychain execution requires macOS and has not been
-runtime-tested here.
+additional provider windows. On 2026-10-01, a macOS check with Claude Code 2.1.286
+and a saved Pro login passed through `/usr/bin/security`, returning five-hour
+and weekly quota windows.

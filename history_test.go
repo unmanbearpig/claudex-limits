@@ -62,10 +62,17 @@ func TestHistoryLoadsReadingsFromBeforeRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	account := filepath.Base(store.directory)
-	if store.directory != filepath.Join(cache, "claudex-limits", "history", account) {
+	userCache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.directory != filepath.Join(userCache, "claudex-limits", "history", account) {
 		t.Fatalf("new history directory = %q", store.directory)
 	}
-	legacy := &historyStore{directory: filepath.Join(cache, "codex-limits", "history", account)}
+	// macOS does not honor XDG_CACHE_HOME. Keep all test writes in the temp dir.
+	store.directory = filepath.Join(cache, "claudex-limits", "history", account)
+	store.legacyDirectory = filepath.Join(cache, "codex-limits", "history", account)
+	legacy := &historyStore{directory: store.legacyDirectory}
 	now := time.Now()
 	for _, record := range []historyRecord{
 		{At: now.Add(-4*time.Hour - time.Second), Snapshot: historySnapshot(99)},

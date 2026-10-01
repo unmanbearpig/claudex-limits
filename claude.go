@@ -110,45 +110,42 @@ func claudeKeychainService(configDirectory string) string {
 }
 
 func readClaudeKeychain(ctx context.Context, service string) ([]byte, error) {
-	// JXA provides the system Security framework without cgo or a compiler.
-	// AuthenticationUIFail prevents credential discovery from opening a dialog.
-	const script = `ObjC.import('Security');
-function run(argv) {
-  var query = $.NSMutableDictionary.alloc.init;
-  query.setObjectForKey($.kSecClassGenericPassword, $.kSecClass);
-  query.setObjectForKey($(argv[0]), $.kSecAttrService);
-  if (argv[1]) query.setObjectForKey($(argv[1]), $.kSecAttrAccount);
-  query.setObjectForKey($.kCFBooleanTrue, $.kSecReturnData);
-  query.setObjectForKey($.kSecMatchLimitOne, $.kSecMatchLimit);
-  query.setObjectForKey($.kSecUseAuthenticationUIFail, $.kSecUseAuthenticationUI);
-  var result = Ref();
-  var status = $.SecItemCopyMatching(query, result);
-  var data = status === 0 ? ObjC.unwrap($.NSString.alloc.initWithDataEncoding(result[0], $.NSUTF8StringEncoding)) : null;
-  return JSON.stringify({status: status, data: data});
-}`
+	// Use Claude Code's own reader. Keychain access belongs to the executable:
+	// osascript cannot use a credential already authorized for /usr/bin/security.
 	account := os.Getenv("USER")
 	if account == "" {
 		if current, err := user.Current(); err == nil {
 			account = current.Username
 		}
 	}
-	command := exec.CommandContext(ctx, "/usr/bin/osascript", "-l", "JavaScript", "-", service, account)
-	command.Stdin = strings.NewReader(script)
+	args := []string{"find-generic-password", "-s", service, "-w"}
+	if account != "" {
+		args = append(args, "-a", account)
+	}
+	return claudeKeychainCommandOutput(exec.CommandContext(ctx, "/usr/bin/security", args...))
+}
+
+func claudeKeychainCommandOutput(command *exec.Cmd) ([]byte, error) {
 	contents, err := command.Output()
-	var result struct {
-		Status int    `json:"status"`
-		Data   string `json:"data"`
+	if err != nil {
+		// security exits with the low byte of its OSStatus. Never include its
+		// stdout, stderr, or exec error, which may contain credential contents.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			switch exit.ExitCode() {
+			case 44: // errSecItemNotFound (-25300)
+				return nil, os.ErrNotExist
+			case 36, 51, 128: // interaction not allowed, authentication failed, canceled
+				return nil, errors.New("macOS Keychain denied access to Claude OAuth credentials; allow /usr/bin/security to access the Claude Code Keychain item, or use --auth-file")
+			}
+			return nil, fmt.Errorf("could not read Claude OAuth credentials from macOS Keychain (security exit %d)", exit.ExitCode())
+		}
+		return nil, errors.New("could not run the macOS Keychain credential reader")
 	}
-	if err != nil || json.Unmarshal(contents, &result) != nil {
-		return nil, errors.New("could not read Claude OAuth credentials from macOS Keychain")
+	if len(strings.TrimSpace(string(contents))) == 0 {
+		return nil, errors.New("Claude OAuth credentials in macOS Keychain are empty; run `claude auth login`")
 	}
-	if result.Status == -25300 {
-		return nil, os.ErrNotExist
-	}
-	if result.Status != 0 || result.Data == "" {
-		return nil, errors.New("Claude OAuth credentials are unavailable without Keychain interaction; open Claude Code or use --auth-file")
-	}
-	return []byte(result.Data), nil
+	return contents, nil
 }
 
 // ClaudeSource reads Claude Code's login without refreshing or editing it.
